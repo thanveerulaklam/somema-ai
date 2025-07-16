@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
-import { Button } from '@/components/ui/Button';
+import { supabase } from '../../lib/supabase';
+import { Button } from '../../components/ui/Button';
 import { 
   Calendar, 
   Image, 
