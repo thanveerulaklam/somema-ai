@@ -1,22 +1,10 @@
-import { Suspense } from 'react'
-import DashboardContent from './DashboardContent'
+'use client';
 
-export default function DashboardPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div></div>}>
-      <DashboardContent />
-    </Suspense>
-  )
-}
-
-// --- Client Component ---
-'use client'
-
-import { useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
-import { Button } from '@/components/ui/Button'
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
+import { Button } from '@/components/ui/Button';
 import { 
   Calendar, 
   Image, 
@@ -30,76 +18,76 @@ import {
   Eye,
   CheckCircle,
   X
-} from 'lucide-react'
+} from 'lucide-react';
 
 interface UserProfile {
-  id: string
-  business_name: string
-  niche: string
-  tone: string
-  audience: string
+  id: string;
+  business_name: string;
+  niche: string;
+  tone: string;
+  audience: string;
 }
 
 interface DashboardStats {
-  totalPosts: number
-  scheduledPosts: number
-  publishedPosts: number
-  totalEngagement: number
+  totalPosts: number;
+  scheduledPosts: number;
+  publishedPosts: number;
+  totalEngagement: number;
 }
 
-function DashboardContent() {
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<UserProfile | null>(null)
+export default function DashboardContent() {
+  const [user, setUser] = useState<any>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
     totalPosts: 0,
     scheduledPosts: 0,
     publishedPosts: 0,
     totalEngagement: 0
-  })
-  const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState<string | null>(null)
-  const [metaConnected, setMetaConnected] = useState<{ instagram: boolean; facebook: boolean; facebookName?: string; instagramName?: string }>({ instagram: false, facebook: false })
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  });
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+  const [metaConnected, setMetaConnected] = useState<{ instagram: boolean; facebook: boolean; facebookName?: string; instagramName?: string }>({ instagram: false, facebook: false });
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     // Check for success message in URL params
-    const urlMessage = searchParams.get('message')
+    const urlMessage = searchParams.get('message');
     if (urlMessage) {
-      setMessage(decodeURIComponent(urlMessage))
+      setMessage(decodeURIComponent(urlMessage));
       // Clear the message from URL
-      const newUrl = new URL(window.location.href)
-      newUrl.searchParams.delete('message')
-      window.history.replaceState({}, '', newUrl.toString())
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('message');
+      window.history.replaceState({}, '', newUrl.toString());
     }
 
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        router.push('/login')
-        return
+        router.push('/login');
+        return;
       }
-      setUser(user)
+      setUser(user);
 
       // Get user profile
       const { data: profileData } = await supabase
         .from('users')
         .select('*')
         .eq('id', user.id)
-        .single()
+        .single();
 
       if (profileData) {
-        setProfile(profileData)
+        setProfile(profileData);
       } else {
-        router.push('/onboarding')
-        return
+        router.push('/onboarding');
+        return;
       }
 
       // Get dashboard stats
-      await loadDashboardStats(user.id)
-      setLoading(false)
-    }
-    getUser()
+      await loadDashboardStats(user.id);
+      setLoading(false);
+    };
+    getUser();
 
     // Check Meta connection status
     const checkMetaConnection = async () => {
@@ -146,7 +134,7 @@ function DashboardContent() {
       }
     };
     checkMetaConnection();
-  }, [router])
+  }, [router]);
 
   const loadDashboardStats = async (userId: string) => {
     try {
@@ -154,56 +142,48 @@ function DashboardContent() {
       const { count: totalPosts, error: dbError } = await supabase
         .from('posts')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
+        .eq('user_id', userId);
 
-      let finalTotalPosts = totalPosts || 0
-      let finalScheduledPosts = 0
-      let finalPublishedPosts = 0
-      let finalTotalEngagement = 0
+      let finalTotalPosts = totalPosts || 0;
+      let finalScheduledPosts = 0;
+      let finalPublishedPosts = 0;
+      let finalTotalEngagement = 0;
 
       if (dbError || totalPosts === 0) {
-        console.log('Database error or no posts, checking localStorage')
         // Fallback to localStorage
-        const savedPosts = JSON.parse(localStorage.getItem('somema_draft_posts') || '[]')
-        const userPosts = savedPosts.filter((post: any) => post.user_id === userId)
-        
-        finalTotalPosts = userPosts.length
-        finalScheduledPosts = userPosts.filter((post: any) => post.status === 'scheduled').length
-        finalPublishedPosts = userPosts.filter((post: any) => post.status === 'published').length
-        
-        console.log('Stats from localStorage:', {
-          total: finalTotalPosts,
-          scheduled: finalScheduledPosts,
-          published: finalPublishedPosts
-        })
+        const savedPosts = JSON.parse(localStorage.getItem('somema_draft_posts') || '[]');
+        const userPosts = savedPosts.filter((post: any) => post.user_id === userId);
+        finalTotalPosts = userPosts.length;
+        finalScheduledPosts = userPosts.filter((post: any) => post.status === 'scheduled').length;
+        finalPublishedPosts = userPosts.filter((post: any) => post.status === 'published').length;
       } else {
         // Get additional stats from database
         const { count: scheduledPosts } = await supabase
           .from('posts')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', userId)
-          .eq('status', 'scheduled')
+          .eq('status', 'scheduled');
 
         const { count: publishedPosts } = await supabase
           .from('posts')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', userId)
-          .eq('status', 'published')
+          .eq('status', 'published');
 
-        finalScheduledPosts = scheduledPosts || 0
-        finalPublishedPosts = publishedPosts || 0
+        finalScheduledPosts = scheduledPosts || 0;
+        finalPublishedPosts = publishedPosts || 0;
 
         // Get total engagement (sum of all engagement metrics)
         const { data: posts } = await supabase
           .from('posts')
           .select('engagement_metrics')
           .eq('user_id', userId)
-          .not('engagement_metrics', 'is', null)
+          .not('engagement_metrics', 'is', null);
 
         finalTotalEngagement = posts?.reduce((sum, post) => {
-          const metrics = post.engagement_metrics || {}
-          return sum + (metrics.likes || 0) + (metrics.shares || 0) + (metrics.comments || 0)
-        }, 0) || 0
+          const metrics = post.engagement_metrics || {};
+          return sum + (metrics.likes || 0) + (metrics.shares || 0) + (metrics.comments || 0);
+        }, 0) || 0;
       }
 
       setStats({
@@ -211,33 +191,31 @@ function DashboardContent() {
         scheduledPosts: finalScheduledPosts,
         publishedPosts: finalPublishedPosts,
         totalEngagement: finalTotalEngagement
-      })
+      });
     } catch (error) {
-      console.error('Error loading stats:', error)
       // Fallback to localStorage on any error
-      const savedPosts = JSON.parse(localStorage.getItem('somema_draft_posts') || '[]')
-      const userPosts = savedPosts.filter((post: any) => post.user_id === userId)
-      
+      const savedPosts = JSON.parse(localStorage.getItem('somema_draft_posts') || '[]');
+      const userPosts = savedPosts.filter((post: any) => post.user_id === userId);
       setStats({
         totalPosts: userPosts.length,
         scheduledPosts: userPosts.filter((post: any) => post.status === 'scheduled').length,
         publishedPosts: userPosts.filter((post: any) => post.status === 'published').length,
         totalEngagement: 0
-      })
+      });
     }
-  }
+  };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
       </div>
-    )
+    );
   }
 
   return (
@@ -429,5 +407,5 @@ function DashboardContent() {
         </div>
       </div>
     </div>
-  )
+  );
 } 
