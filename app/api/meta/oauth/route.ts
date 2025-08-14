@@ -90,47 +90,40 @@ export async function GET(request: NextRequest) {
         )
       }
 
-            // STEP 2: Fetch all pages the user selected during OAuth
+            // STEP 2: Fetch ALL pages the user selected during OAuth
       console.log('=== STEP 2: FETCHING ALL PAGES FROM OAUTH ===')
-      console.log('Calling /me/accounts to get all pages user selected during OAuth...')
+      console.log('Calling /me/accounts to get ALL pages user selected during OAuth...')
       
-      let allPagesFromAPI: any[] = []
-      let nextPageUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,category_list,tasks,access_token&access_token=${accessToken}&limit=100`
-      let pageCount = 0
-      
-      while (nextPageUrl) {
-        pageCount++
-        console.log(`\n--- PAGE FETCH ${pageCount} ---`)
-        console.log('Fetching from:', nextPageUrl)
+      // This is the critical step - fetch ALL pages, not just the first one
+      const getUserPages = async (userAccessToken: string) => {
+        const url = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,category_list,tasks,access_token&access_token=${userAccessToken}&limit=100`
+        console.log('Fetching pages from:', url)
         
-        const pagesResponse = await fetch(nextPageUrl)
-        const pagesData: any = await pagesResponse.json()
-
-        console.log('Raw pages response:', JSON.stringify(pagesData, null, 2))
+        const response = await fetch(url)
+        const data = await response.json()
         
-        if (pagesData.error) {
-          console.error('❌ Pages error:', pagesData.error)
-          console.error('❌ This means the user access token is invalid or expired')
-          break
+        console.log('Raw /me/accounts response:', JSON.stringify(data, null, 2))
+        
+        if (data.error) {
+          console.error('❌ /me/accounts error:', data.error)
+          throw new Error(`Failed to fetch pages: ${data.error.message}`)
         }
-
-        console.log(`✅ Fetched ${pagesData.data.length} pages in this batch`)
-        allPagesFromAPI = allPagesFromAPI.concat(pagesData.data)
-        console.log(`📊 Total pages so far: ${allPagesFromAPI.length}`)
-
-        // Check for next page
-        if (pagesData.paging && pagesData.paging.next) {
-          nextPageUrl = pagesData.paging.next
-          console.log('🔄 Next page URL found, continuing...')
-        } else {
-          nextPageUrl = null
-          console.log('🏁 No more pages to fetch')
-        }
+        
+        console.log(`✅ Successfully fetched ${data.data.length} pages from /me/accounts`)
+        return data.data
       }
       
-      console.log(`\n=== PAGE DISCOVERY COMPLETE ===`)
-      console.log(`📊 Total pages from /me/accounts: ${allPagesFromAPI.length}`)
-      console.log('Pages found:', allPagesFromAPI.map(p => `${p.name} (${p.id})`))
+      // Fetch all pages
+      let allPagesFromAPI: any[] = []
+      try {
+        allPagesFromAPI = await getUserPages(accessToken)
+        console.log('📊 All pages from /me/accounts:', allPagesFromAPI.map(p => `${p.name} (${p.id})`))
+      } catch (error: any) {
+        console.error('❌ Failed to fetch pages:', error)
+        return NextResponse.redirect(
+          `${getBaseUrl(request)}/settings?error=page_fetch_failed&details=${encodeURIComponent(error.message || 'Unknown error')}`
+        )
+      }
       
       if (allPagesFromAPI.length === 0) {
         console.error('❌ CRITICAL ERROR: No pages returned from /me/accounts')
@@ -142,6 +135,10 @@ export async function GET(request: NextRequest) {
           `${getBaseUrl(request)}/settings?error=no_pages_found`
         )
       }
+      
+      console.log(`\n=== PAGE DISCOVERY COMPLETE ===`)
+      console.log(`📊 Total pages from /me/accounts: ${allPagesFromAPI.length}`)
+      console.log('All pages found:', allPagesFromAPI.map(p => `${p.name} (${p.id})`))
       
       // Get pages from Business Manager
       console.log('Fetching pages from Business Manager...')
@@ -378,6 +375,13 @@ export async function GET(request: NextRequest) {
       console.log(`📊 Total connected accounts: ${connectedAccounts.length}`)
       console.log(`📊 Pages with Instagram: ${allPages.filter(p => p.instagram_accounts?.length > 0).length}`)
       console.log(`📊 Pages without Instagram: ${allPages.filter(p => !p.instagram_accounts || p.instagram_accounts.length === 0).length}`)
+      
+      // CRITICAL: Ensure we're storing ALL pages, not just the first one
+      console.log('\n=== STORING ALL PAGES IN DATABASE ===')
+      console.log('Pages to be stored:')
+      allPages.forEach((page, index) => {
+        console.log(`${index + 1}. ${page.name} (${page.id}) - ${page.instagram_accounts?.length || 0} Instagram accounts`)
+      })
 
       console.log('Auto-connected accounts:', connectedAccounts)
 
