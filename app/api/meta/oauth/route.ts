@@ -90,26 +90,40 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      // Get Facebook pages from /me/accounts
-      const pagesResponse = await fetch(
-        `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`
-      )
-      const pagesData = await pagesResponse.json()
+      // Get Facebook pages from /me/accounts with pagination
+      console.log('Fetching pages with pagination...')
+      let allPagesFromAPI: any[] = []
+      let nextPageUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}&limit=100`
+      
+      while (nextPageUrl) {
+        const pagesResponse = await fetch(nextPageUrl)
+        const pagesData: any = await pagesResponse.json()
 
-      console.log('Pages response:', pagesData)
+        console.log('Pages response:', pagesData)
+        
+        if (pagesData.error) {
+          console.error('Pages error:', pagesData.error)
+          break
+        }
+
+        allPagesFromAPI = allPagesFromAPI.concat(pagesData.data)
+        console.log(`Fetched ${pagesData.data.length} pages, total so far: ${allPagesFromAPI.length}`)
+
+        // Check for next page
+        if (pagesData.paging && pagesData.paging.next) {
+          nextPageUrl = pagesData.paging.next
+        } else {
+          nextPageUrl = null
+        }
+      }
+
+      console.log(`Total pages from API: ${allPagesFromAPI.length}`)
       console.log('Access token type:', accessToken.substring(0, 20) + '...')
       console.log('User ID:', userData.id)
 
-      if (pagesData.error) {
-        console.error('Pages error:', pagesData.error)
-        return NextResponse.redirect(
-          `${getBaseUrl(request)}/settings?error=pages_failed`
-        )
-      }
-
       // Get Instagram accounts for each page from /me/accounts
       const pagesWithInstagram = await Promise.all(
-        pagesData.data.map(async (page: any) => {
+        allPagesFromAPI.map(async (page: any) => {
           const instagramResponse = await fetch(
             `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${accessToken}`
           )
@@ -329,7 +343,7 @@ export async function GET(request: NextRequest) {
     ? 'http://localhost:3000/api/meta/oauth'
     : (process.env.META_REDIRECT_URI || 'https://www.quely.ai/api/meta/oauth')
   
-  const scope = 'pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,pages_manage_metadata,instagram_basic,instagram_manage_insights,instagram_content_publish'
+  const scope = 'pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,pages_manage_metadata,instagram_basic,instagram_content_publish'
   const oauthState = Math.random().toString(36).substring(7)
 
   console.log('OAuth parameters:', { redirectUri, scope, oauthState, isLocalhost })
