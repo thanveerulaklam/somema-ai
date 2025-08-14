@@ -385,7 +385,7 @@ export async function GET(request: NextRequest) {
     ? 'http://localhost:3000/api/meta/oauth'
     : (process.env.META_REDIRECT_URI || 'https://www.quely.ai/api/meta/oauth')
   
-  const scope = 'pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,pages_manage_metadata,instagram_basic,instagram_content_publish,business_management,pages_manage_ads'
+  const scope = 'pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,pages_manage_metadata,instagram_basic,instagram_content_publish'
   const oauthState = Math.random().toString(36).substring(7)
 
   console.log('OAuth parameters:', { redirectUri, scope, oauthState, isLocalhost })
