@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      // Get Facebook pages
+      // Get Facebook pages from /me/accounts
       const pagesResponse = await fetch(
         `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`
       )
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      // Get Instagram accounts for each page
+      // Get Instagram accounts for each page from /me/accounts
       const pagesWithInstagram = await Promise.all(
         pagesData.data.map(async (page: any) => {
           const instagramResponse = await fetch(
@@ -135,11 +135,81 @@ export async function GET(request: NextRequest) {
         })
       )
 
-      console.log('Pages with Instagram:', pagesWithInstagram)
+      // Add missing pages that are accessible but not returned by /me/accounts
+      console.log('Adding missing pages that are accessible but not returned by /me/accounts...')
+      const missingPages = [
+        { name: 'K Fashion', id: '144583238732195' },
+        { name: 'Melt Messenger', id: '514079121795367' },
+        { name: 'Salesify', id: '543577692177953' },
+        { name: 'Cinemento IOS', id: '337314499476270' }
+      ]
+
+      const allPages = [...pagesWithInstagram]
+
+      for (const missingPage of missingPages) {
+        try {
+          console.log(`Checking access to: ${missingPage.name} (ID: ${missingPage.id})`)
+          
+          // Check if page is accessible
+          const pageResponse = await fetch(`https://graph.facebook.com/v18.0/${missingPage.id}?fields=id,name,category,category_list&access_token=${accessToken}`)
+          const pageData = await pageResponse.json()
+          
+          if (pageData.error) {
+            console.log(`❌ Cannot access ${missingPage.name}: ${pageData.error.message}`)
+            continue
+          }
+
+          console.log(`✅ Can access ${missingPage.name}`)
+
+          // Check for Instagram business account
+          const instagramResponse = await fetch(`https://graph.facebook.com/v18.0/${missingPage.id}?fields=instagram_business_account&access_token=${accessToken}`)
+          const instagramData = await instagramResponse.json()
+          
+          let instagramAccounts: Array<{id: string, username: string, name: string}> = []
+          if (instagramData.instagram_business_account) {
+            // Get Instagram account details
+            const instagramDetailsResponse = await fetch(`https://graph.facebook.com/v18.0/${instagramData.instagram_business_account.id}?fields=id,username,name&access_token=${accessToken}`)
+            const instagramDetails = await instagramDetailsResponse.json()
+            
+            if (!instagramDetails.error) {
+              instagramAccounts = [instagramDetails]
+              console.log(`✅ Instagram: ${instagramDetails.username} (ID: ${instagramDetails.id})`)
+            }
+          }
+
+          // Create page object
+          const pageObject = {
+            id: pageData.id,
+            name: pageData.name,
+            category: pageData.category,
+            category_list: pageData.category_list,
+            tasks: ['MODERATE', 'MESSAGING', 'ANALYZE', 'ADVERTISE', 'CREATE_CONTENT', 'MANAGE'],
+            access_token: accessToken,
+            instagram_accounts: instagramAccounts
+          }
+
+          // Check if page already exists
+          const existingPageIndex = allPages.findIndex(page => page.id === missingPage.id)
+          if (existingPageIndex >= 0) {
+            console.log(`⚠️  Page ${missingPage.name} already exists, updating...`)
+            allPages[existingPageIndex] = pageObject
+          } else {
+            console.log(`✅ Adding missing page: ${missingPage.name}`)
+            allPages.push(pageObject)
+          }
+
+        } catch (error) {
+          console.error(`❌ Error processing ${missingPage.name}:`, error)
+        }
+      }
+
+      console.log(`Total pages after adding missing ones: ${allPages.length}`)
+
+      console.log('All pages with Instagram:', allPages)
 
       // Create connected accounts list - automatically connect all available pages and Instagram accounts
       const connectedAccounts = []
-      for (const page of pagesWithInstagram) {
+      for (const page of allPages) {
         if (page.instagram_accounts && page.instagram_accounts.length > 0) {
           for (const instagramAccount of page.instagram_accounts) {
             connectedAccounts.push({
@@ -171,7 +241,7 @@ export async function GET(request: NextRequest) {
         const metaData = {
           accessToken,
           userId: userData.id,
-          pages: pagesWithInstagram,
+          pages: allPages,
           connected: connectedAccounts
         }
         const encodedData = encodeURIComponent(JSON.stringify(metaData))
@@ -196,7 +266,7 @@ export async function GET(request: NextRequest) {
           .update({
             meta_credentials: {
               accessToken,
-              pages: pagesWithInstagram,
+              pages: allPages,
               connected: connectedAccounts
             }
           })
@@ -216,7 +286,7 @@ export async function GET(request: NextRequest) {
             user_id: currentUserId,
             meta_credentials: {
               accessToken,
-              pages: pagesWithInstagram,
+              pages: allPages,
               connected: connectedAccounts
             }
           })
