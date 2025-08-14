@@ -90,9 +90,10 @@ export async function GET(request: NextRequest) {
         )
       }
 
-            // Get Facebook pages from /me/accounts with pagination
-      console.log('=== STARTING PAGE DISCOVERY ===')
-      console.log('Fetching pages with pagination...')
+            // STEP 2: Fetch all pages the user selected during OAuth
+      console.log('=== STEP 2: FETCHING ALL PAGES FROM OAUTH ===')
+      console.log('Calling /me/accounts to get all pages user selected during OAuth...')
+      
       let allPagesFromAPI: any[] = []
       let nextPageUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,category_list,tasks,access_token&access_token=${accessToken}&limit=100`
       let pageCount = 0
@@ -109,6 +110,7 @@ export async function GET(request: NextRequest) {
         
         if (pagesData.error) {
           console.error('❌ Pages error:', pagesData.error)
+          console.error('❌ This means the user access token is invalid or expired')
           break
         }
 
@@ -129,8 +131,17 @@ export async function GET(request: NextRequest) {
       console.log(`\n=== PAGE DISCOVERY COMPLETE ===`)
       console.log(`📊 Total pages from /me/accounts: ${allPagesFromAPI.length}`)
       console.log('Pages found:', allPagesFromAPI.map(p => `${p.name} (${p.id})`))
-
-      console.log(`Total pages from /me/accounts: ${allPagesFromAPI.length}`)
+      
+      if (allPagesFromAPI.length === 0) {
+        console.error('❌ CRITICAL ERROR: No pages returned from /me/accounts')
+        console.error('❌ This means either:')
+        console.error('❌ 1. User access token is invalid')
+        console.error('❌ 2. User did not grant pages_show_list permission')
+        console.error('❌ 3. User has no pages to manage')
+        return NextResponse.redirect(
+          `${getBaseUrl(request)}/settings?error=no_pages_found`
+        )
+      }
       
       // Get pages from Business Manager
       console.log('Fetching pages from Business Manager...')
@@ -169,16 +180,37 @@ export async function GET(request: NextRequest) {
       console.log('Access token type:', accessToken.substring(0, 20) + '...')
       console.log('User ID:', userData.id)
 
-      // Get Instagram accounts for each page from /me/accounts
-      console.log('\n=== STARTING INSTAGRAM DISCOVERY ===')
+      // STEP 3: Process each page and get Instagram accounts
+      console.log('\n=== STEP 3: PROCESSING PAGES AND INSTAGRAM ACCOUNTS ===')
       const pagesWithInstagram = await Promise.all(
         allPagesFromAPI.map(async (page: any, index: number) => {
           console.log(`\n--- PROCESSING PAGE ${index + 1}/${allPagesFromAPI.length} ---`)
           console.log(`Page: ${page.name} (ID: ${page.id})`)
           
-          // Use page access token instead of user access token
-          const pageAccessToken = page.access_token || accessToken
-          console.log(`Using access token for ${page.name}: ${pageAccessToken.substring(0, 20)}...`)
+          // STEP 3a: Exchange short-lived page access token for long-lived one
+          let pageAccessToken = page.access_token || accessToken
+          console.log(`Original page access token for ${page.name}: ${pageAccessToken.substring(0, 20)}...`)
+          
+          if (page.access_token) {
+            try {
+              console.log(`Exchanging short-lived token for long-lived token for ${page.name}...`)
+              const tokenExchangeResponse = await fetch(
+                `https://graph.facebook.com/v18.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&fb_exchange_token=${page.access_token}`
+              )
+              const tokenExchangeData = await tokenExchangeResponse.json()
+              
+              if (!tokenExchangeData.error && tokenExchangeData.access_token) {
+                pageAccessToken = tokenExchangeData.access_token
+                console.log(`✅ Successfully exchanged token for ${page.name}`)
+              } else {
+                console.log(`⚠️  Token exchange failed for ${page.name}, using original token`)
+              }
+            } catch (error) {
+              console.log(`⚠️  Token exchange error for ${page.name}:`, error)
+            }
+          }
+          
+          console.log(`Final access token for ${page.name}: ${pageAccessToken.substring(0, 20)}...`)
           
           const instagramResponse = await fetch(
             `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account,connected_instagram_account&access_token=${pageAccessToken}`
