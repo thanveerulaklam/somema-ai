@@ -33,9 +33,9 @@ export default function Footer() {
             <h4 className="text-lg font-semibold mb-4">Quick Links</h4>
             <ul className="space-y-2">
               <li>
-                <Link href="/pricing" className="text-gray-300 hover:text-white transition-colors">
+                {/* <Link href="/pricing" className="text-gray-300 hover:text-white transition-colors">
                   Pricing
-                </Link>
+                </Link> */}
               </li>
               <li>
                 <Link href="/dashboard" className="text-gray-300 hover:text-white transition-colors">
