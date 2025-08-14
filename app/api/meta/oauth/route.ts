@@ -90,32 +90,45 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      // Get Facebook pages from /me/accounts with pagination
+            // Get Facebook pages from /me/accounts with pagination
+      console.log('=== STARTING PAGE DISCOVERY ===')
       console.log('Fetching pages with pagination...')
       let allPagesFromAPI: any[] = []
-      let nextPageUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}&limit=100`
+      let nextPageUrl: string | null = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,category_list,tasks,access_token&access_token=${accessToken}&limit=100`
+      let pageCount = 0
       
       while (nextPageUrl) {
+        pageCount++
+        console.log(`\n--- PAGE FETCH ${pageCount} ---`)
+        console.log('Fetching from:', nextPageUrl)
+        
         const pagesResponse = await fetch(nextPageUrl)
         const pagesData: any = await pagesResponse.json()
 
-        console.log('Pages response:', pagesData)
+        console.log('Raw pages response:', JSON.stringify(pagesData, null, 2))
         
         if (pagesData.error) {
-          console.error('Pages error:', pagesData.error)
+          console.error('❌ Pages error:', pagesData.error)
           break
         }
 
+        console.log(`✅ Fetched ${pagesData.data.length} pages in this batch`)
         allPagesFromAPI = allPagesFromAPI.concat(pagesData.data)
-        console.log(`Fetched ${pagesData.data.length} pages, total so far: ${allPagesFromAPI.length}`)
+        console.log(`📊 Total pages so far: ${allPagesFromAPI.length}`)
 
         // Check for next page
         if (pagesData.paging && pagesData.paging.next) {
           nextPageUrl = pagesData.paging.next
+          console.log('🔄 Next page URL found, continuing...')
         } else {
           nextPageUrl = null
+          console.log('🏁 No more pages to fetch')
         }
       }
+      
+      console.log(`\n=== PAGE DISCOVERY COMPLETE ===`)
+      console.log(`📊 Total pages from /me/accounts: ${allPagesFromAPI.length}`)
+      console.log('Pages found:', allPagesFromAPI.map(p => `${p.name} (${p.id})`))
 
       console.log(`Total pages from /me/accounts: ${allPagesFromAPI.length}`)
       
@@ -157,40 +170,64 @@ export async function GET(request: NextRequest) {
       console.log('User ID:', userData.id)
 
       // Get Instagram accounts for each page from /me/accounts
+      console.log('\n=== STARTING INSTAGRAM DISCOVERY ===')
       const pagesWithInstagram = await Promise.all(
-        allPagesFromAPI.map(async (page: any) => {
+        allPagesFromAPI.map(async (page: any, index: number) => {
+          console.log(`\n--- PROCESSING PAGE ${index + 1}/${allPagesFromAPI.length} ---`)
+          console.log(`Page: ${page.name} (ID: ${page.id})`)
+          
+          // Use page access token instead of user access token
+          const pageAccessToken = page.access_token || accessToken
+          console.log(`Using access token for ${page.name}: ${pageAccessToken.substring(0, 20)}...`)
+          
           const instagramResponse = await fetch(
-            `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account,connected_instagram_account&access_token=${accessToken}`
+            `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account,connected_instagram_account&access_token=${pageAccessToken}`
           )
           const instagramData = await instagramResponse.json()
+          
+          console.log(`Instagram data for ${page.name}:`, JSON.stringify(instagramData, null, 2))
           
           let instagramAccounts: Array<{id: string, username: string, name: string}> = []
           
           // Check for Instagram Business Account first
           if (instagramData.instagram_business_account) {
+            console.log(`✅ Found Instagram Business Account for ${page.name}`)
             const instagramDetailsResponse = await fetch(
-              `https://graph.facebook.com/v18.0/${instagramData.instagram_business_account.id}?fields=id,username,name&access_token=${accessToken}`
+              `https://graph.facebook.com/v18.0/${instagramData.instagram_business_account.id}?fields=id,username,name&access_token=${pageAccessToken}`
             )
             const instagramDetails = await instagramDetailsResponse.json()
             
             if (!instagramDetails.error) {
               instagramAccounts.push(instagramDetails)
+              console.log(`✅ Added Instagram: ${instagramDetails.username} (${instagramDetails.id})`)
+            } else {
+              console.log(`❌ Error getting Instagram details:`, instagramDetails.error)
             }
+          } else {
+            console.log(`ℹ️  No Instagram Business Account for ${page.name}`)
           }
           
           // Check for Connected Instagram Account (non-business) only if different from business account
           if (instagramData.connected_instagram_account && 
               (!instagramData.instagram_business_account || 
                instagramData.connected_instagram_account.id !== instagramData.instagram_business_account.id)) {
+            console.log(`✅ Found Connected Instagram Account for ${page.name}`)
             const connectedInstaResponse = await fetch(
-              `https://graph.facebook.com/v18.0/${instagramData.connected_instagram_account.id}?fields=id,username,name&access_token=${accessToken}`
+              `https://graph.facebook.com/v18.0/${instagramData.connected_instagram_account.id}?fields=id,username,name&access_token=${pageAccessToken}`
             )
             const connectedInstaDetails = await connectedInstaResponse.json()
             
             if (!connectedInstaDetails.error) {
               instagramAccounts.push(connectedInstaDetails)
+              console.log(`✅ Added Connected Instagram: ${connectedInstaDetails.username} (${connectedInstaDetails.id})`)
+            } else {
+              console.log(`❌ Error getting connected Instagram details:`, connectedInstaDetails.error)
             }
+          } else {
+            console.log(`ℹ️  No Connected Instagram Account for ${page.name}`)
           }
+          
+          console.log(`📊 Total Instagram accounts for ${page.name}: ${instagramAccounts.length}`)
           
           return {
             ...page,
@@ -198,6 +235,12 @@ export async function GET(request: NextRequest) {
           }
         })
       )
+      
+      console.log(`\n=== INSTAGRAM DISCOVERY COMPLETE ===`)
+      console.log(`📊 Total pages with Instagram: ${pagesWithInstagram.length}`)
+      pagesWithInstagram.forEach((page, index) => {
+        console.log(`${index + 1}. ${page.name}: ${page.instagram_accounts.length} Instagram accounts`)
+      })
 
       // Get all pages that the user has access to (not just admin access)
       console.log('Checking for additional pages that user has access to...')
@@ -280,16 +323,29 @@ export async function GET(request: NextRequest) {
 
       // Create connected accounts list - automatically connect all available pages and Instagram accounts
       const connectedAccounts = []
+      console.log('\n=== CREATING CONNECTED ACCOUNTS ===')
       for (const page of allPages) {
+        console.log(`Processing page: ${page.name} (${page.id})`)
+        console.log(`Instagram accounts: ${page.instagram_accounts?.length || 0}`)
+        
         if (page.instagram_accounts && page.instagram_accounts.length > 0) {
           for (const instagramAccount of page.instagram_accounts) {
             connectedAccounts.push({
               pageId: page.id,
               instagramId: instagramAccount.id
             })
+            console.log(`✅ Connected: ${page.name} → ${instagramAccount.username}`)
           }
+        } else {
+          console.log(`ℹ️  No Instagram accounts for ${page.name} - page will still be stored`)
         }
       }
+      
+      console.log(`\n=== FINAL SUMMARY ===`)
+      console.log(`📊 Total pages to store: ${allPages.length}`)
+      console.log(`📊 Total connected accounts: ${connectedAccounts.length}`)
+      console.log(`📊 Pages with Instagram: ${allPages.filter(p => p.instagram_accounts?.length > 0).length}`)
+      console.log(`📊 Pages without Instagram: ${allPages.filter(p => !p.instagram_accounts || p.instagram_accounts.length === 0).length}`)
 
       console.log('Auto-connected accounts:', connectedAccounts)
 
