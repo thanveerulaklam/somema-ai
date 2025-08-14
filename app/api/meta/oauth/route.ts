@@ -73,8 +73,26 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      const accessToken = tokenData.access_token
-      console.log('Access token obtained:', accessToken.substring(0, 20) + '...')
+      const shortLivedToken = tokenData.access_token
+      console.log('Short-lived token obtained:', shortLivedToken.substring(0, 20) + '...')
+      
+      // STEP 2: Exchange short-lived token for long-lived token
+      console.log('=== STEP 2: EXCHANGING FOR LONG-LIVED TOKEN ===')
+      const longLivedTokenResponse = await fetch(
+        `https://graph.facebook.com/v18.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&fb_exchange_token=${shortLivedToken}`
+      )
+      const longLivedTokenData = await longLivedTokenResponse.json()
+      
+      if (longLivedTokenData.error) {
+        console.error('❌ Long-lived token exchange failed:', longLivedTokenData.error)
+        return NextResponse.redirect(
+          `${getBaseUrl(request)}/settings?error=token_exchange_failed&details=${encodeURIComponent(JSON.stringify(longLivedTokenData.error))}`
+        )
+      }
+      
+      const accessToken = longLivedTokenData.access_token
+      console.log('✅ Long-lived token obtained:', accessToken.substring(0, 20) + '...')
+      console.log('Token expires in:', longLivedTokenData.expires_in, 'seconds')
 
       // Get user info
       const userResponse = await fetch(
@@ -109,7 +127,13 @@ export async function GET(request: NextRequest) {
           throw new Error(`Failed to fetch pages: ${data.error.message}`)
         }
         
+        if (!data.data || !Array.isArray(data.data)) {
+          console.error('❌ Invalid response format:', data)
+          throw new Error('Invalid response format from /me/accounts')
+        }
+        
         console.log(`✅ Successfully fetched ${data.data.length} pages from /me/accounts`)
+        console.log('Pages found:', data.data.map((page: any) => `${page.name} (${page.id})`))
         return data.data
       }
       
@@ -382,6 +406,19 @@ export async function GET(request: NextRequest) {
       allPages.forEach((page, index) => {
         console.log(`${index + 1}. ${page.name} (${page.id}) - ${page.instagram_accounts?.length || 0} Instagram accounts`)
       })
+      
+      // Verify we have all the pages that were selected during OAuth
+      console.log('\n=== VERIFICATION ===')
+      console.log(`📊 Total pages from OAuth: ${allPages.length}`)
+      console.log(`📊 Pages with access tokens: ${allPages.filter(p => p.access_token).length}`)
+      console.log(`📊 Pages with Instagram: ${allPages.filter(p => p.instagram_accounts?.length > 0).length}`)
+      
+      if (allPages.length === 0) {
+        console.error('❌ CRITICAL: No pages to store!')
+        return NextResponse.redirect(
+          `${getBaseUrl(request)}/settings?error=no_pages_to_store`
+        )
+      }
 
       console.log('Auto-connected accounts:', connectedAccounts)
 
