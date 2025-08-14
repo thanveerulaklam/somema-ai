@@ -252,7 +252,7 @@ export async function GET(request: NextRequest) {
     ? 'http://localhost:3000/api/meta/oauth'
     : (process.env.META_REDIRECT_URI || 'https://www.quely.ai/api/meta/oauth')
   
-  const scope = 'pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,pages_manage_metadata,pages_manage_instant_articles,pages_manage_events,pages_manage_ads,pages_manage_cta,pages_manage_webhooks,pages_manage_lead_ads,pages_manage_metadata,pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,instagram_basic,instagram_manage_insights,instagram_content_publish,instagram_manage_comments,instagram_manage_messages,instagram_manage_relationships,instagram_manage_settings'
+  const scope = 'pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,pages_manage_metadata,pages_manage_instant_articles,pages_manage_ads,pages_manage_cta,pages_manage_webhooks,pages_manage_lead_ads,instagram_basic,instagram_manage_insights,instagram_content_publish,instagram_manage_comments,instagram_manage_messages,instagram_manage_relationships,instagram_manage_settings'
   const oauthState = Math.random().toString(36).substring(7)
 
   console.log('OAuth parameters:', { redirectUri, scope, oauthState, isLocalhost })
