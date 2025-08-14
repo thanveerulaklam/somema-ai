@@ -36,19 +36,29 @@ export async function GET(request: NextRequest) {
         { status: 404 }
       )
     }
-    // Fetch all available pages/accounts from Meta
-    const metaService = createMetaAPIService({ accessToken: metaCreds.accessToken })
-    const facebookPagesRaw = await metaService.getFacebookPages()
-    const facebookPages = facebookPagesRaw
-    const pagesWithInstagram = await Promise.all(
-      facebookPages.map(async (page) => {
-        const instagramAccounts = await metaService.getInstagramAccounts(page.id)
-        return {
-          ...page,
-          instagram_accounts: instagramAccounts
-        }
-      })
-    )
+    // Use stored pages from database (includes manually added pages)
+    const storedPages = metaCreds.pages || []
+    console.log(`Using ${storedPages.length} stored pages from database`)
+    
+    // If no stored pages, fallback to API fetch
+    let pagesWithInstagram = storedPages
+    let facebookPagesRaw = storedPages
+    
+    if (storedPages.length === 0) {
+      console.log('No stored pages found, fetching from Meta API...')
+      const metaService = createMetaAPIService({ accessToken: metaCreds.accessToken })
+      facebookPagesRaw = await metaService.getFacebookPages()
+      const facebookPages = facebookPagesRaw
+      pagesWithInstagram = await Promise.all(
+        facebookPages.map(async (page: any) => {
+          const instagramAccounts = await metaService.getInstagramAccounts(page.id)
+          return {
+            ...page,
+            instagram_accounts: instagramAccounts
+          }
+        })
+      )
+    }
     // Return both available and connected
     return NextResponse.json({
       success: true,
