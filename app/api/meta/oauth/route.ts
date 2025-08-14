@@ -117,7 +117,36 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      console.log(`Total pages from API: ${allPagesFromAPI.length}`)
+      console.log(`Total pages from /me/accounts: ${allPagesFromAPI.length}`)
+      
+      // Get pages from Business Manager
+      console.log('Fetching pages from Business Manager...')
+      try {
+        const businessesResponse = await fetch(`https://graph.facebook.com/v18.0/me/businesses?access_token=${accessToken}`)
+        const businessesData = await businessesResponse.json()
+        
+        if (!businessesData.error && businessesData.data && businessesData.data.length > 0) {
+          console.log(`Found ${businessesData.data.length} business accounts`)
+          
+          for (const business of businessesData.data) {
+            console.log(`Fetching pages for business: ${business.name} (ID: ${business.id})`)
+            
+            const bizPagesResponse = await fetch(`https://graph.facebook.com/v18.0/${business.id}/owned_pages?access_token=${accessToken}`)
+            const bizPagesData = await bizPagesResponse.json()
+            
+            if (!bizPagesData.error && bizPagesData.data && bizPagesData.data.length > 0) {
+              console.log(`Found ${bizPagesData.data.length} pages in business ${business.name}`)
+              allPagesFromAPI = allPagesFromAPI.concat(bizPagesData.data)
+            }
+          }
+        } else {
+          console.log('No business accounts found or error:', businessesData.error?.message || 'No businesses')
+        }
+      } catch (error) {
+        console.log('Error fetching business pages:', error)
+      }
+      
+      console.log(`Total pages after Business Manager: ${allPagesFromAPI.length}`)
       console.log('Access token type:', accessToken.substring(0, 20) + '...')
       console.log('User ID:', userData.id)
 
@@ -125,20 +154,33 @@ export async function GET(request: NextRequest) {
       const pagesWithInstagram = await Promise.all(
         allPagesFromAPI.map(async (page: any) => {
           const instagramResponse = await fetch(
-            `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${accessToken}`
+            `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account,connected_instagram_account&access_token=${accessToken}`
           )
           const instagramData = await instagramResponse.json()
           
           let instagramAccounts: Array<{id: string, username: string, name: string}> = []
+          
+          // Check for Instagram Business Account
           if (instagramData.instagram_business_account) {
-            // Get Instagram account details
             const instagramDetailsResponse = await fetch(
               `https://graph.facebook.com/v18.0/${instagramData.instagram_business_account.id}?fields=id,username,name&access_token=${accessToken}`
             )
             const instagramDetails = await instagramDetailsResponse.json()
             
             if (!instagramDetails.error) {
-              instagramAccounts = [instagramDetails]
+              instagramAccounts.push(instagramDetails)
+            }
+          }
+          
+          // Check for Connected Instagram Account (non-business)
+          if (instagramData.connected_instagram_account) {
+            const connectedInstaResponse = await fetch(
+              `https://graph.facebook.com/v18.0/${instagramData.connected_instagram_account.id}?fields=id,username,name&access_token=${accessToken}`
+            )
+            const connectedInstaDetails = await connectedInstaResponse.json()
+            
+            if (!connectedInstaDetails.error) {
+              instagramAccounts.push(connectedInstaDetails)
             }
           }
           
@@ -343,14 +385,14 @@ export async function GET(request: NextRequest) {
     ? 'http://localhost:3000/api/meta/oauth'
     : (process.env.META_REDIRECT_URI || 'https://www.quely.ai/api/meta/oauth')
   
-  const scope = 'pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,pages_manage_metadata,instagram_basic,instagram_content_publish'
+  const scope = 'pages_manage_posts,pages_read_engagement,pages_show_list,pages_read_user_content,pages_manage_metadata,instagram_basic,instagram_content_publish,business_management,pages_manage_ads'
   const oauthState = Math.random().toString(36).substring(7)
 
   console.log('OAuth parameters:', { redirectUri, scope, oauthState, isLocalhost })
 
   // For development, we can use a simpler approach
   // In production, this should be the Facebook OAuth URL
-  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${oauthState}&response_type=code`
+  const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${oauthState}&auth_type=reauthenticate&response_type=code`
 
   console.log('Redirecting to Facebook OAuth:', authUrl)
   return NextResponse.redirect(authUrl)
