@@ -135,75 +135,79 @@ export async function GET(request: NextRequest) {
         })
       )
 
-      // Add missing pages that are accessible but not returned by /me/accounts
-      console.log('Adding missing pages that are accessible but not returned by /me/accounts...')
-      const missingPages = [
-        { name: 'K Fashion', id: '144583238732195' },
-        { name: 'Melt Messenger', id: '514079121795367' },
-        { name: 'Salesify', id: '543577692177953' },
-        { name: 'Cinemento IOS', id: '337314499476270' }
-      ]
-
+      // Get all pages that the user has access to (not just admin access)
+      console.log('Checking for additional pages that user has access to...')
+      
       const allPages = [...pagesWithInstagram]
-
-      for (const missingPage of missingPages) {
-        try {
-          console.log(`Checking access to: ${missingPage.name} (ID: ${missingPage.id})`)
+      const foundPageIds = new Set(pagesWithInstagram.map(page => page.id))
+      
+      // Try to get additional pages by checking user's permissions and roles
+      console.log('Checking user permissions to discover additional pages...')
+      
+      // Get user's permissions to understand what they can access
+      const permissionsResponse = await fetch(`https://graph.facebook.com/v18.0/me/permissions?access_token=${accessToken}`)
+      const permissionsData = await permissionsResponse.json()
+      
+      if (!permissionsData.error) {
+        console.log('User permissions:', permissionsData.data)
+        
+        // If user has pages_show_list permission, they might have access to more pages
+        const hasPagesShowList = permissionsData.data.some((p: any) => p.permission === 'pages_show_list' && p.status === 'granted')
+        
+        if (hasPagesShowList) {
+          console.log('User has pages_show_list permission, checking for additional pages...')
           
-          // Check if page is accessible
-          const pageResponse = await fetch(`https://graph.facebook.com/v18.0/${missingPage.id}?fields=id,name,category,category_list&access_token=${accessToken}`)
-          const pageData = await pageResponse.json()
-          
-          if (pageData.error) {
-            console.log(`❌ Cannot access ${missingPage.name}: ${pageData.error.message}`)
-            continue
-          }
-
-          console.log(`✅ Can access ${missingPage.name}`)
-
-          // Check for Instagram business account
-          const instagramResponse = await fetch(`https://graph.facebook.com/v18.0/${missingPage.id}?fields=instagram_business_account&access_token=${accessToken}`)
-          const instagramData = await instagramResponse.json()
-          
-          let instagramAccounts: Array<{id: string, username: string, name: string}> = []
-          if (instagramData.instagram_business_account) {
-            // Get Instagram account details
-            const instagramDetailsResponse = await fetch(`https://graph.facebook.com/v18.0/${instagramData.instagram_business_account.id}?fields=id,username,name&access_token=${accessToken}`)
-            const instagramDetails = await instagramDetailsResponse.json()
+          // Try to get pages through different endpoints
+          try {
+            // Try /me/accounts with different fields
+            const extendedPagesResponse = await fetch(
+              `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,category_list,tasks,access_token&access_token=${accessToken}`
+            )
+            const extendedPagesData = await extendedPagesResponse.json()
             
-            if (!instagramDetails.error) {
-              instagramAccounts = [instagramDetails]
-              console.log(`✅ Instagram: ${instagramDetails.username} (ID: ${instagramDetails.id})`)
+            if (!extendedPagesData.error && extendedPagesData.data.length > pagesData.data.length) {
+              console.log(`Found ${extendedPagesData.data.length} pages with extended fields (vs ${pagesData.data.length} with basic fields)`)
+              
+              // Process the additional pages
+              for (const page of extendedPagesData.data) {
+                if (!foundPageIds.has(page.id)) {
+                  console.log(`Found additional page: ${page.name} (ID: ${page.id})`)
+                  
+                  // Get Instagram account for this page
+                  const instagramResponse = await fetch(
+                    `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${accessToken}`
+                  )
+                  const instagramData = await instagramResponse.json()
+                  
+                  let instagramAccounts: Array<{id: string, username: string, name: string}> = []
+                  if (instagramData.instagram_business_account) {
+                    const instagramDetailsResponse = await fetch(
+                      `https://graph.facebook.com/v18.0/${instagramData.instagram_business_account.id}?fields=id,username,name&access_token=${accessToken}`
+                    )
+                    const instagramDetails = await instagramDetailsResponse.json()
+                    
+                    if (!instagramDetails.error) {
+                      instagramAccounts = [instagramDetails]
+                    }
+                  }
+                  
+                  const pageObject = {
+                    ...page,
+                    instagram_accounts: instagramAccounts
+                  }
+                  
+                  allPages.push(pageObject)
+                  foundPageIds.add(page.id)
+                }
+              }
             }
+          } catch (error) {
+            console.log('Error checking for additional pages:', error)
           }
-
-          // Create page object
-          const pageObject = {
-            id: pageData.id,
-            name: pageData.name,
-            category: pageData.category,
-            category_list: pageData.category_list,
-            tasks: ['MODERATE', 'MESSAGING', 'ANALYZE', 'ADVERTISE', 'CREATE_CONTENT', 'MANAGE'],
-            access_token: accessToken,
-            instagram_accounts: instagramAccounts
-          }
-
-          // Check if page already exists
-          const existingPageIndex = allPages.findIndex(page => page.id === missingPage.id)
-          if (existingPageIndex >= 0) {
-            console.log(`⚠️  Page ${missingPage.name} already exists, updating...`)
-            allPages[existingPageIndex] = pageObject
-          } else {
-            console.log(`✅ Adding missing page: ${missingPage.name}`)
-            allPages.push(pageObject)
-          }
-
-        } catch (error) {
-          console.error(`❌ Error processing ${missingPage.name}:`, error)
         }
       }
-
-      console.log(`Total pages after adding missing ones: ${allPages.length}`)
+      
+      console.log(`Total pages available: ${allPages.length}`)
 
       console.log('All pages with Instagram:', allPages)
 
