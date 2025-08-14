@@ -220,6 +220,8 @@ Tone: ${tone || 'Professional and friendly'}
 Target Audience: ${targetAudience || 'General audience'}
 Industry/Niche: ${niche || 'Business'}
 
+The caption must mention the business name: ${businessContext} and niche: ${niche}.
+
 ${customPrompt ? `Additional Context: ${customPrompt}` : ''}
 
 Requirements:

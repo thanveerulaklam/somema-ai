@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
@@ -34,6 +34,7 @@ interface Post {
   scheduled_for?: string
   created_at: string
   media_url?: string
+  media_urls?: string[]
   text_elements?: {
     headline: string
     subtext: string
@@ -43,25 +44,32 @@ interface Post {
   theme?: string
 }
 
-export default function PostsPage() {
+function PostsContent() {
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
   const [platformFilter, setPlatformFilter] = useState<string>('all')
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [schedulePostId, setSchedulePostId] = useState<string | null>(null)
+  const [scheduledTime, setScheduledTime] = useState('')
+  const [schedulingLoading, setSchedulingLoading] = useState(false)
+  const [showPostNowModal, setShowPostNowModal] = useState(false)
+  const [postNowPost, setPostNowPost] = useState<Post | null>(null)
+  const [postNowPlatform, setPostNowPlatform] = useState<'instagram' | 'facebook' | 'both'>('instagram')
+  const [postNowLoadingId, setPostNowLoadingId] = useState<string | null>(null)
+  const [postNowError, setPostNowError] = useState<string>('')
+
+  // Always get status filter from URL
+  const statusParam = searchParams.get('status')
+  const statusFilter = statusParam && ['draft', 'scheduled', 'published', 'failed'].includes(statusParam)
+    ? statusParam
+    : 'all'
 
   useEffect(() => {
     loadPosts()
   }, [])
-
-  useEffect(() => {
-    const statusParam = searchParams.get('status')
-    if (statusParam && ['draft', 'scheduled', 'published', 'failed'].includes(statusParam)) {
-      setStatusFilter(statusParam)
-    }
-  }, [searchParams])
 
   const loadPosts = async () => {
     try {
@@ -96,7 +104,6 @@ export default function PostsPage() {
                          post.hashtags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
     const matchesStatus = statusFilter === 'all' || post.status === statusFilter
     const matchesPlatform = platformFilter === 'all' || post.platform === platformFilter
-    
     return matchesSearch && matchesStatus && matchesPlatform
   })
 
@@ -183,6 +190,104 @@ export default function PostsPage() {
     }
   }
 
+  const handleSchedulePost = async () => {
+    if (!schedulePostId || !scheduledTime) return
+    setSchedulingLoading(true)
+    setPostNowError('')
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      // Debug logs for time conversion
+      console.log('scheduledTime input:', scheduledTime);
+      console.log('Date object:', new Date(scheduledTime));
+      console.log('UTC ISO string:', new Date(scheduledTime).toISOString());
+      // Correct: convert local time to UTC ISO string
+      const utcISOString = new Date(scheduledTime).toISOString();
+      if (typeof window === 'undefined') {
+        console.info('UTC ISO string to be saved:', utcISOString)
+      }
+      const { error } = await supabase
+        .from('posts')
+        .update({ status: 'scheduled', scheduled_for: utcISOString })
+        .eq('id', schedulePostId)
+        .eq('user_id', user.id)
+      if (error) throw error
+      setShowScheduleModal(false)
+      setSchedulePostId(null)
+      setScheduledTime('')
+      // Reload posts
+      loadPosts()
+    } catch (error: any) {
+      setPostNowError(error.message || 'Failed to schedule post')
+    } finally {
+      setSchedulingLoading(false)
+    }
+  }
+
+  const handlePostNow = (post: Post) => {
+    setPostNowPost(post)
+    setPostNowPlatform('instagram')
+    setShowPostNowModal(true)
+    setPostNowError('')
+  }
+
+  const handleConfirmPostNow = async () => {
+    if (!postNowPost) return
+    setPostNowLoadingId(postNowPost.id)
+    setPostNowError('')
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      // Fetch user profile to get connected Meta page/account
+      const { data: profileData, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('meta_credentials')
+        .eq('user_id', user.id)
+        .single()
+      if (profileError || !profileData?.meta_credentials?.connected?.length) {
+        throw new Error('No connected Instagram business account found. Please connect your account in Settings.')
+      }
+      const connected = profileData.meta_credentials.connected
+      const selectedPageId = connected[0].pageId
+      if (!selectedPageId) {
+        throw new Error('No connected Instagram business account found. Please connect your account in Settings.')
+      }
+      // Call the API to post to Instagram/Facebook/Both
+      const response = await fetch('/api/meta/post', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.id}`
+        },
+        body: JSON.stringify({
+          caption: postNowPost.caption,
+          hashtags: postNowPost.hashtags,
+          mediaUrl: postNowPost.media_url,
+          platform: postNowPlatform,
+          selectedPageId
+        })
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to post')
+      }
+      // Update the post status in the database
+      await supabase
+        .from('posts')
+        .update({ status: 'published' })
+        .eq('id', postNowPost.id)
+        .eq('user_id', user.id)
+      setShowPostNowModal(false)
+      setPostNowPost(null)
+      // Reload posts
+      loadPosts()
+    } catch (error: any) {
+      setPostNowError(error.message || 'Failed to post now')
+    } finally {
+      setPostNowLoadingId(null)
+    }
+  }
+
   const fixMissingTextElements = async () => {
     if (!confirm('This will update all posts that are missing text elements. Continue?')) {
       return
@@ -204,7 +309,7 @@ export default function PostsPage() {
         return
       }
 
-      if (!postsToFix || postsToFix.length === 0) {
+      if (!postsToFix || !Array.isArray(postsToFix) || postsToFix.length === 0) {
         alert('No posts need fixing!')
         return
       }
@@ -214,7 +319,7 @@ export default function PostsPage() {
         if (!post.caption) continue
 
         // Extract text elements from caption
-        const lines = post.caption.split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0)
+        const lines = Array.isArray(post.caption.split('\n')) ? post.caption.split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0) : [];
         
         const firstLine = lines[0] || ''
         const headline = firstLine
@@ -225,7 +330,7 @@ export default function PostsPage() {
           .substring(0, 50) || 'Amazing Headline'
         
         let subtext = 'Compelling subtext that draws attention'
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = 1; i < (lines ? lines.length : 0); i++) {
           const line = lines[i]
           if (line && !line.startsWith('#') && line.length > 15 && line.length < 80) {
             subtext = line.substring(0, 60)
@@ -262,7 +367,7 @@ export default function PostsPage() {
         }
       }
 
-      alert(`Fixed ${fixedCount} out of ${postsToFix.length} posts!`)
+      alert(`Fixed ${fixedCount} out of ${(Array.isArray(postsToFix) ? postsToFix.length : 0)} posts!`)
       
       // Reload posts to show updated data
       loadPosts()
@@ -275,7 +380,7 @@ export default function PostsPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-24 w-24 sm:h-32 sm:w-32 border-b-2 border-blue-600"></div>
       </div>
     )
   }
@@ -284,7 +389,7 @@ export default function PostsPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard')}>
@@ -295,7 +400,7 @@ export default function PostsPage() {
             
             <div className="flex items-center">
               <FileText className="h-6 w-6 text-blue-600 mr-2" />
-              <h1 className="text-xl font-semibold text-gray-900">
+              <h1 className="text-lg sm:text-xl font-semibold text-gray-900">
                 Posts
               </h1>
             </div>
@@ -310,7 +415,7 @@ export default function PostsPage() {
               <Button
                 onClick={fixMissingTextElements}
                 variant="outline"
-                className="ml-2"
+                className="ml-0 sm:ml-2 mt-2 sm:mt-0"
               >
                 Fix Missing Data
               </Button>
@@ -319,12 +424,12 @@ export default function PostsPage() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-6 sm:py-8">
         {/* Filters */}
-        <div className="mb-6 bg-white rounded-lg shadow-sm border p-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="mb-6 bg-white rounded-lg shadow-sm border p-3 sm:p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Search</label>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">Search</label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
@@ -332,19 +437,21 @@ export default function PostsPage() {
                   placeholder="Search posts..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">Status</label>
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={(e) => {
+                  router.push(`/posts?status=${e.target.value}`)
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               >
-                <option value="all">All Status</option>
+                <option value="all">All</option>
                 <option value="draft">Draft</option>
                 <option value="scheduled">Scheduled</option>
                 <option value="published">Published</option>
@@ -353,11 +460,11 @@ export default function PostsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Platform</label>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">Platform</label>
               <select
                 value={platformFilter}
                 onChange={(e) => setPlatformFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               >
                 <option value="all">All Platforms</option>
                 <option value="instagram">Instagram</option>
@@ -370,8 +477,8 @@ export default function PostsPage() {
               <Button
                 onClick={() => {
                   setSearchTerm('')
-                  setStatusFilter('all')
                   setPlatformFilter('all')
+                  router.push('/posts')
                 }}
                 variant="outline"
                 className="w-full"
@@ -384,12 +491,12 @@ export default function PostsPage() {
 
         {/* Posts List */}
         <div className="bg-white rounded-lg shadow-sm border">
-          {filteredPosts.length === 0 ? (
+          {Array.isArray(filteredPosts) && filteredPosts.length === 0 ? (
             <div className="p-8 text-center">
               <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No posts found</h3>
               <p className="text-gray-600 mb-4">
-                {posts.length === 0 
+                {Array.isArray(posts) && posts.length === 0 
                   ? "You haven't created any posts yet." 
                   : "No posts match your current filters."}
               </p>
@@ -418,13 +525,46 @@ export default function PostsPage() {
                         {post.scheduled_for && (
                           <div className="flex items-center text-sm text-gray-500">
                             <Calendar className="h-4 w-4 mr-1" />
-                            {formatDate(post.scheduled_for)}
+                            <span className="text-xs text-gray-500">
+                              {post.scheduled_for ?
+                                (() => {
+                                  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                                  if (typeof window === 'undefined') {
+                                    console.info('Scheduled_for from DB (UTC):', post.scheduled_for)
+                                  }
+                                  const localString = new Date(String(post.scheduled_for)).toLocaleString(undefined, { timeZone: tz });
+                                  if (typeof window === 'undefined') {
+                                    console.info('Local time string for display:', localString, tz)
+                                  }
+                                  return localString + ` (${tz})`;
+                                })()
+                                : ''}
+                            </span>
                           </div>
                         )}
                       </div>
                       
                       <div className="flex items-start space-x-4">
-                        {post.media_url && post.media_url.trim() !== '' ? (
+                        {post.media_urls && Array.isArray(post.media_urls) && post.media_urls.length > 0 ? (
+                          <div className="flex-shrink-0">
+                            <div className="relative">
+                              <img
+                                src={post.media_urls[0]}
+                                alt="Post media"
+                                className="w-16 h-16 object-cover rounded-lg border"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement
+                                  target.style.display = 'none'
+                                }}
+                              />
+                              {post.media_urls.length > 1 && (
+                                <div className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                                  {post.media_urls.length}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : post.media_url && post.media_url.trim() !== '' ? (
                           <div className="flex-shrink-0">
                             <img
                               src={post.media_url}
@@ -463,7 +603,7 @@ export default function PostsPage() {
                                 #{tag}
                               </span>
                             ))}
-                            {post.hashtags.length > 5 && (
+                            {Array.isArray(post.hashtags) && post.hashtags.length > 5 && (
                               <span className="text-xs text-gray-500">
                                 +{post.hashtags.length - 5} more
                               </span>
@@ -492,6 +632,31 @@ export default function PostsPage() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      {post.status === 'draft' && (
+                        <div className="flex flex-col gap-2 mt-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSchedulePostId(post.id)
+                              setShowScheduleModal(true)
+                              setScheduledTime('')
+                            }}
+                          >
+                            Schedule Post
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={() => handlePostNow(post)}
+                          >
+                            Post Now
+                          </Button>
+                          {postNowError && postNowLoadingId === post.id && (
+                            <div className="text-xs text-red-600 mt-1">{postNowError}</div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -502,9 +667,135 @@ export default function PostsPage() {
 
         {/* Summary */}
         <div className="mt-6 text-center text-sm text-gray-500">
-          Showing {filteredPosts.length} of {posts.length} posts
+          Showing {Array.isArray(filteredPosts) ? filteredPosts.length : 0} of {Array.isArray(posts) ? posts.length : 0} posts
         </div>
       </div>
+
+      {showScheduleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Schedule Post</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Schedule Time
+                </label>
+                <input
+                  type="datetime-local"
+                  value={scheduledTime}
+                  onChange={(e) => setScheduledTime(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => {
+                    setShowScheduleModal(false)
+                    setSchedulePostId(null)
+                    setScheduledTime('')
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSchedulePost}
+                  loading={schedulingLoading}
+                  disabled={!scheduledTime}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Schedule Post
+                </Button>
+              </div>
+              {postNowError && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-800 text-sm">{postNowError}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPostNowModal && postNowPost && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Where do you want to post?</h3>
+            <div className="flex flex-col gap-3 mb-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="platform"
+                  value="instagram"
+                  checked={postNowPlatform === 'instagram'}
+                  onChange={() => setPostNowPlatform('instagram')}
+                />
+                Instagram (default)
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="platform"
+                  value="facebook"
+                  checked={postNowPlatform === 'facebook'}
+                  onChange={() => setPostNowPlatform('facebook')}
+                />
+                Facebook
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="platform"
+                  value="both"
+                  checked={postNowPlatform === 'both'}
+                  onChange={() => setPostNowPlatform('both')}
+                />
+                Both Instagram & Facebook
+              </label>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                onClick={() => {
+                  setShowPostNowModal(false)
+                  setPostNowPost(null)
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmPostNow}
+                loading={postNowLoadingId === postNowPost.id}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Post Now
+              </Button>
+            </div>
+            {postNowError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-red-800 text-sm">{postNowError}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+export default function PostsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading posts...</p>
+        </div>
+      </div>
+    }>
+      <PostsContent />
+    </Suspense>
   )
 } 

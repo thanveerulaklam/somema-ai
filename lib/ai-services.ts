@@ -1,5 +1,5 @@
 // AI Services Integration
-// OpenAI GPT-4, Claude Haiku, DALL-E 3, and Canva API
+// OpenAI GPT-4, Claude Haiku, and Canva API
 
 import { supabase } from './supabase'
 
@@ -307,7 +307,7 @@ export async function generateHashtagsWithGPT4(request: AIGenerationRequest): Pr
   }
 }
 
-// DALL-E 3 for Image Prompt Generation
+// GPT-4o-mini for Image Prompt Generation
 export async function generateImagePromptWithGPT4(request: AIGenerationRequest): Promise<string> {
   if (!OPENAI_API_KEY) {
     throw new Error('OpenAI API key not configured')
@@ -354,43 +354,7 @@ export async function generateImagePromptWithGPT4(request: AIGenerationRequest):
   }
 }
 
-// DALL-E 3 for Image Generation
-export async function generateImageWithDALLE3(prompt: string): Promise<string> {
-  if (!OPENAI_API_KEY) {
-    throw new Error('OpenAI API key not configured')
-  }
 
-  // Enhance the prompt to ensure clean images without text
-  const enhancedPrompt = `${prompt}. Clean, professional photography style. No text, no logos, no watermarks, no graphics. Pure visual content only.`
-
-  try {
-    const response = await fetch(`${OPENAI_BASE_URL}/images/generations`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'dall-e-3',
-        prompt: enhancedPrompt,
-        n: 1,
-        size: '1024x1024',
-        quality: 'standard',
-        style: 'natural'
-      })
-    })
-
-    if (!response.ok) {
-      throw new Error(`DALL-E 3 API error: ${response.status}`)
-    }
-
-    const data = await response.json()
-    return data.data[0].url
-  } catch (error) {
-    console.error('DALL-E 3 image generation error:', error)
-    throw new Error('Failed to generate image with DALL-E 3')
-  }
-}
 
 // Canva API for Template Discovery
 export async function getCanvaTemplates(category?: string): Promise<CanvaTemplate[]> {
@@ -923,7 +887,7 @@ export function generateFallbackContent(request: AIGenerationRequest): Generated
   }
 }
 
-// Download and store DALL-E image permanently in Supabase storage
+// Download and store image permanently in Supabase storage
 export async function downloadAndStoreImage(imageUrl: string, businessName: string): Promise<string> {
   try {
     // Use server-side API route to avoid CORS issues
@@ -956,7 +920,7 @@ export async function downloadAndStoreImage(imageUrl: string, businessName: stri
     console.error('Error downloading and storing image:', error)
     
     // If API fails, return the original URL and let the post editor handle it
-    console.log('Returning original DALL-E URL as fallback:', imageUrl)
+    console.log('Returning original image URL as fallback:', imageUrl)
     return imageUrl
   }
 }
@@ -993,7 +957,7 @@ export async function analyzeImageWithCLIP(imageUrl: string): Promise<{
   confidence: number
 }> {
   try {
-    const response = await fetch(`${BASE_URL}/api/analyze-image`, {
+    const response = await fetch(`/api/analyze-image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1099,17 +1063,17 @@ export async function generateContentFromAnalyzedImage(
     
     // Use the new API route for content generation
     const [captionResponse, hashtagsResponse, textElementsResponse] = await Promise.all([
-      fetch(`${BASE_URL}/api/generate-content`, {
+      fetch(`/api/generate-content`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'caption', request: enhancedRequest })
       }),
-      fetch(`${BASE_URL}/api/generate-content`, {
+      fetch(`/api/generate-content`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'hashtags', request: hashtagRequest })
       }),
-      fetch(`${BASE_URL}/api/generate-content`, {
+      fetch(`/api/generate-content`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'textElements', request: textElementsRequest })
@@ -1191,34 +1155,38 @@ export async function generateInstagramContentFromCLIP(
   }
 
   try {
-    const prompt = `You are a professional social media content creator. Based on the following image analysis and business profile, create:
+    const productType = imageAnalysis.classification.toLowerCase()
+    const productTags = imageAnalysis.tags.join(', ')
+    const productDescription = imageAnalysis.caption
 
-1. An engaging Instagram caption (2-3 sentences max)
-2. Relevant hashtags (5-8 hashtags)
-
-IMAGE ANALYSIS:
-- Product: ${imageAnalysis.classification}
-- Description: ${imageAnalysis.caption}
-- Tags: ${imageAnalysis.tags.join(', ')}
-- Confidence: ${(imageAnalysis.confidence * 100).toFixed(1)}%
-
-BUSINESS PROFILE:
-- Business Name: ${businessProfile.business_name}
-- Industry: ${businessProfile.niche}
-- Brand Tone: ${businessProfile.tone}
-- Target Audience: ${businessProfile.audience}
-
-REQUIREMENTS:
-- Caption should be conversational and engaging
-- Hashtags should be relevant to the product and industry
-- Match the business tone and target audience
-- Keep everything authentic and brand-appropriate
-
-Respond in this exact JSON format:
-{
+    // Detect carousel by checking for '|' in caption (joined captions)
+    const isCarousel = productDescription.includes('|')
+    let prompt = ''
+    if (isCarousel) {
+      // Carousel: build a prompt listing each image
+      const captions = productDescription.split('|').map(c => c.trim()).filter(Boolean)
+      prompt = `You are a professional social media content creator. Based on the following analysis of a carousel (multi-image) Instagram post and the business profile, create:\n\n1. A single engaging Instagram caption (2-3 sentences max) that describes the entire carousel and connects the images into a cohesive story.\n2. Relevant hashtags (5-8 hashtags) for the whole carousel.\n\nCAROUSEL IMAGES:\n${captions.map((c, i) => `- Image ${i + 1}: ${c}`).join('\n')}\n\nTAGS: ${imageAnalysis.tags.join(', ')}\n\nBUSINESS PROFILE:\n- Business Name: ${businessProfile.business_name}\n- Industry: ${businessProfile.niche}\n- Brand Tone: ${businessProfile.tone}\n- Target Audience: ${businessProfile.audience}\n\nIMPORTANT: Incorporate the business name "${businessProfile.business_name}" naturally into the caption. Make the content feel authentic to this specific business and its ${businessProfile.tone} tone. Target the ${businessProfile.audience} audience and focus on the ${businessProfile.niche} industry. Focus on the specific product details from the image analysis. Don't use generic phrases like "elevate your style" or "check out this amazing product" unless they're specifically relevant to the product shown. Respond in this exact JSON format:\n\n{
   "caption": "Your engaging Instagram caption here",
   "hashtags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
 }`
+    } else {
+      // Single image: create a more specific prompt based on the product type
+      let promptStyle = ''
+      if (productType.includes('shirt') || productType.includes('dress')) {
+        promptStyle = 'Focus on the specific style, color, and fit of this clothing item. Mention the fabric, pattern, or design details.'
+      } else if (productType.includes('jacket') || productType.includes('outerwear')) {
+        promptStyle = 'Highlight the jacket\'s style, material, and versatility. Mention how it can be styled for different occasions.'
+      } else if (productType.includes('casual') || productType.includes('outfit')) {
+        promptStyle = 'Emphasize the casual, comfortable style and how it works for everyday wear. Mention the combination of pieces.'
+      } else {
+        promptStyle = 'Focus on the specific features and benefits of this product. Mention what makes it unique and desirable.'
+      }
+      
+      prompt = `You are a professional social media content creator. Based on the following image analysis and business profile, create:\n\n1. An engaging Instagram caption (2-3 sentences max)\n2. Relevant hashtags (5-8 hashtags)\n\nIMAGE ANALYSIS:\n- Product: ${imageAnalysis.classification}\n- Description: ${imageAnalysis.caption}\n- Tags: ${imageAnalysis.tags.join(', ')}\n- Confidence: ${(imageAnalysis.confidence * 100).toFixed(1)}%\n\nBUSINESS PROFILE:\n- Business Name: ${businessProfile.business_name}\n- Industry: ${businessProfile.niche}\n- Brand Tone: ${businessProfile.tone}\n- Target Audience: ${businessProfile.audience}\n\nIMPORTANT: Incorporate the business name "${businessProfile.business_name}" naturally into the caption. Make the content feel authentic to this specific business and its ${businessProfile.tone} tone. Target the ${businessProfile.audience} audience and focus on the ${businessProfile.niche} industry. Focus on the specific product details from the image analysis. Don't use generic phrases like "elevate your style" or "check out this amazing product" unless they're specifically relevant to the product shown. Respond in this exact JSON format:\n\n{
+  "caption": "Your engaging Instagram caption here",
+  "hashtags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
+}`
+    }
 
     const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
       method: 'POST',
@@ -1239,7 +1207,7 @@ Respond in this exact JSON format:
           }
         ],
         max_tokens: 500,
-        temperature: 0.7
+        temperature: 0.9
       })
     })
 

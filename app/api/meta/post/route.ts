@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createMetaAPIService, PostContent } from '../../../../lib/meta-api'
+import { createInstagramAPIService } from '../../../../lib/instagram-api'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,7 +10,12 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const { caption, hashtags, mediaUrl, scheduledTime, platform, postId, selectedPageId } = await request.json()
+    const requestData = await request.json()
+    const { caption, hashtags, mediaUrl, mediaUrls, scheduledTime, platform, postId, selectedPageId } = requestData
+    
+    console.log('Meta post API received data:', requestData)
+    console.log('Media URLs:', mediaUrls)
+    console.log('Single media URL:', mediaUrl)
 
     // Validate required fields
     if (!caption || !platform || !selectedPageId) {
@@ -69,20 +75,43 @@ export async function POST(request: NextRequest) {
     }
 
     const credentials = userProfile.meta_credentials
+    console.log('Full credentials structure:', JSON.stringify(credentials, null, 2))
     
     // Find the selected page and its Instagram account
     const selectedPage = credentials.pages?.find((page: any) => page.id === selectedPageId)
     if (!selectedPage) {
+      console.log('Available pages:', credentials.pages)
       return NextResponse.json(
         { error: 'Selected page not found in user credentials' },
         { status: 400 }
       )
     }
     
-    // Create Meta service with the selected page credentials
-    const instagramAccountId = selectedPage.instagram_accounts?.[0]?.id
+    console.log('Selected page structure:', JSON.stringify(selectedPage, null, 2))
+    
+    // Try different ways to get Instagram account ID
+    let instagramAccountId = selectedPage.instagram_accounts?.[0]?.id
+    
+    // If not found, try alternative structures
+    if (!instagramAccountId) {
+      // Try direct instagram_accounts array
+      if (selectedPage.instagram_accounts && Array.isArray(selectedPage.instagram_accounts)) {
+        instagramAccountId = selectedPage.instagram_accounts[0]?.id
+      }
+      // Try instagram_business_account
+      if (!instagramAccountId && selectedPage.instagram_business_account) {
+        instagramAccountId = selectedPage.instagram_business_account.id || selectedPage.instagram_business_account
+      }
+      // Try connected_instagram_account
+      if (!instagramAccountId && selectedPage.connected_instagram_account) {
+        instagramAccountId = selectedPage.connected_instagram_account.id || selectedPage.connected_instagram_account
+      }
+    }
+    
     console.log('Selected page:', selectedPage.id)
-    console.log('Instagram account ID:', instagramAccountId)
+    console.log('Instagram account ID found:', instagramAccountId)
+    console.log('Instagram accounts array:', selectedPage.instagram_accounts)
+    console.log('Full selected page structure:', JSON.stringify(selectedPage, null, 2))
     
     const metaService = createMetaAPIService({
       accessToken: credentials.accessToken,
@@ -104,16 +133,14 @@ export async function POST(request: NextRequest) {
       caption,
       hashtags: hashtags || [],
       mediaUrl,
+      mediaUrls: mediaUrls || (mediaUrl ? [mediaUrl] : undefined),
       scheduledTime,
       platform
     }
 
-    // Post to Meta platforms
+    // Post to Meta platforms (Instagram first, then Facebook)
     let result
     switch (platform) {
-      case 'facebook':
-        result = await metaService.postToFacebook(postContent)
-        break
       case 'instagram':
         if (!instagramAccountId) {
           result = {
@@ -121,21 +148,90 @@ export async function POST(request: NextRequest) {
             error: 'No Instagram business account connected to this page. Please connect an Instagram account first.'
           }
         } else {
-        result = await metaService.postToInstagram(postContent)
+          console.log('Posting to Instagram using Instagram API...')
+          
+          // Use Instagram API with page access token
+          const selectedPage = credentials.pages?.find((page: any) => page.id === selectedPageId)
+          const pageAccessToken = selectedPage?.access_token
+          
+          if (!pageAccessToken) {
+            result = {
+              success: false,
+              error: 'Page access token not found'
+            }
+          } else {
+            const instagramService = createInstagramAPIService({
+              accessToken: pageAccessToken,
+              instagramBusinessAccountId: instagramAccountId
+            })
+            
+            result = await instagramService.postToInstagram({
+              caption: postContent.caption,
+              hashtags: postContent.hashtags,
+              mediaUrl: postContent.mediaUrl,
+              mediaUrls: postContent.mediaUrls,
+              scheduledTime: postContent.scheduledTime
+            })
+          }
         }
         break
+      case 'facebook':
+        console.log('Posting to Facebook...')
+        result = await metaService.postToFacebook(postContent)
+        break
       case 'both':
-        const facebookResult = await metaService.postToFacebook(postContent)
+        console.log('Posting to both platforms (Instagram first)...')
+        
+        // Try Instagram first using Instagram API
         let instagramResult
         if (!instagramAccountId) {
+          console.log('No Instagram account ID found, skipping Instagram posting')
           instagramResult = {
             success: false,
             error: 'No Instagram business account connected to this page. Please connect an Instagram account first.'
           }
         } else {
-          instagramResult = await metaService.postToInstagram(postContent)
+          console.log('Attempting Instagram post with account ID:', instagramAccountId)
+          try {
+            // Use Instagram API with page access token
+            const selectedPage = credentials.pages?.find((page: any) => page.id === selectedPageId)
+            const pageAccessToken = selectedPage?.access_token
+            
+            if (!pageAccessToken) {
+              instagramResult = {
+                success: false,
+                error: 'Page access token not found'
+              }
+            } else {
+              const instagramService = createInstagramAPIService({
+                accessToken: pageAccessToken,
+                instagramBusinessAccountId: instagramAccountId
+              })
+              
+              instagramResult = await instagramService.postToInstagram({
+                caption: postContent.caption,
+                hashtags: postContent.hashtags,
+                mediaUrl: postContent.mediaUrl,
+                mediaUrls: postContent.mediaUrls,
+                scheduledTime: postContent.scheduledTime
+              })
         }
-        result = { facebook: facebookResult, instagram: instagramResult }
+            console.log('Instagram result:', instagramResult)
+          } catch (instagramError: any) {
+            console.error('Instagram posting error:', instagramError)
+            instagramResult = {
+              success: false,
+              error: instagramError.message || 'Failed to post to Instagram'
+            }
+          }
+        }
+        
+        // Then try Facebook
+        console.log('Attempting Facebook post...')
+        const facebookResult = await metaService.postToFacebook(postContent)
+        console.log('Facebook result:', facebookResult)
+        
+        result = { instagram: instagramResult, facebook: facebookResult }
         break
       default:
         return NextResponse.json(

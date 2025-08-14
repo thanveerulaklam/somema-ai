@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '../../../lib/supabase'
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSupabase } from '../../../lib/supabase'
+import { cookies } from 'next/headers'
 import { analyzeImageWithCLIP, generateContentFromAnalyzedImage } from '../../../lib/ai-services'
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-
 async function generateCaption(context: any) {
-  const res = await fetch(`${BASE_URL}/api/generate-content`, {
+  const res = await fetch(`/api/generate-content`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -19,7 +18,7 @@ async function generateCaption(context: any) {
 }
 
 async function generateHashtags(context: any) {
-  const res = await fetch(`${BASE_URL}/api/generate-content`, {
+  const res = await fetch(`/api/generate-content`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -46,7 +45,7 @@ export async function POST(req: NextRequest) {
   const userId = authHeader.replace('Bearer ', '');
 
   // Fetch user profile context from Supabase
-  const supabase = createServerClient();
+  const supabase = await getServerSupabase(cookies);
   const { data: profile, error: profileError } = await supabase
     .from('users')
     .select('business_name, niche, tone, audience')

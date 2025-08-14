@@ -28,16 +28,6 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
-
-  // Vercel optimizations
-  serverExternalPackages: ['sharp'],
-  
-  // Ensure proper output for Vercel
-  output: 'standalone',
-
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
 };
 
 export default nextConfig;

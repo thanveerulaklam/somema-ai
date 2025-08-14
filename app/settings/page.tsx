@@ -77,7 +77,8 @@ export default function SettingsPage() {
               .update({
                 meta_credentials: {
                   accessToken: metaData.accessToken,
-                  pages: metaData.pages
+                  pages: metaData.pages,
+                  connected: metaData.connected || []
                 }
               })
               .eq('user_id', user.id)
@@ -96,7 +97,8 @@ export default function SettingsPage() {
                 user_id: user.id,
                 meta_credentials: {
                   accessToken: metaData.accessToken,
-                  pages: metaData.pages
+                  pages: metaData.pages,
+                  connected: metaData.connected || []
                 }
               })
 
@@ -140,9 +142,9 @@ export default function SettingsPage() {
 
       // Fetch actual user profile from database
       const { data: profileData, error: profileError } = await supabase
-        .from('users')
+        .from('user_profiles')
         .select('*')
-        .eq('id', user.id)
+        .eq('user_id', user.id)
         .single()
 
       if (profileError && profileError.code !== 'PGRST116') {
@@ -150,7 +152,18 @@ export default function SettingsPage() {
       }
 
       if (profileData) {
-        setProfile(profileData)
+        // Map user_profiles fields to UserProfile interface
+        const mappedProfile: UserProfile = {
+          id: user.id,
+          email: user.email || '',
+          business_name: profileData.business_name || '',
+          niche: profileData.industry || '',
+          tone: profileData.brand_tone || '',
+          audience: profileData.target_audience || '',
+          created_at: profileData.created_at,
+          updated_at: profileData.updated_at
+        }
+        setProfile(mappedProfile)
       } else {
         // If no profile exists, create a default one
         const defaultProfile: UserProfile = {
@@ -180,25 +193,64 @@ export default function SettingsPage() {
 
     try {
       // Update the user profile in the database
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      console.log('Saving profile data:', {
+        user_id: user.id,
+        business_name: profile.business_name,
+        industry: profile.niche,
+        brand_tone: profile.tone,
+        target_audience: profile.audience
+      })
+
+      // First check if profile exists
+      const { data: existingProfile } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (existingProfile) {
+        // Update existing profile
       const { error: updateError } = await supabase
-        .from('users')
-        .upsert({
-          id: profile.id,
-          email: profile.email,
+          .from('user_profiles')
+          .update({
           business_name: profile.business_name,
-          niche: profile.niche,
-          tone: profile.tone,
-          audience: profile.audience,
+            industry: profile.niche,
+            brand_tone: profile.tone,
+            target_audience: profile.audience,
           updated_at: new Date().toISOString()
         })
+          .eq('user_id', user.id)
 
       if (updateError) throw updateError
+      } else {
+        // Insert new profile
+        const { error: insertError } = await supabase
+          .from('user_profiles')
+          .insert({
+            user_id: user.id,
+            business_name: profile.business_name,
+            industry: profile.niche,
+            brand_tone: profile.tone,
+            target_audience: profile.audience
+          })
+
+        if (insertError) throw insertError
+      }
       
       setSuccess('Settings saved successfully!')
       setEditing(null)
     } catch (error: any) {
       console.error('Error saving profile:', error)
-      setError(error.message)
+      console.error('Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      })
+      setError(error.message || 'Failed to save profile. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -432,6 +484,19 @@ export default function SettingsPage() {
             )}
           </div>
         )}
+      </div>
+      {/* Log Out Button */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 flex justify-end">
+        <Button
+          variant="destructive"
+          onClick={async () => {
+            await supabase.auth.signOut();
+            router.push('/login');
+          }}
+          className="mt-8"
+        >
+          Log Out
+        </Button>
       </div>
     </div>
   )

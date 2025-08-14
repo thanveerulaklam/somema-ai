@@ -31,6 +31,7 @@ interface MetaPostingProps {
   caption: string
   hashtags: string[]
   mediaUrl?: string
+  mediaUrls?: string[]
   postId?: string
   onPosted?: (result: any) => void
 }
@@ -39,11 +40,12 @@ export default function MetaPosting({
   caption, 
   hashtags, 
   mediaUrl, 
+  mediaUrls, 
   postId, 
   onPosted 
 }: MetaPostingProps) {
   const [pages, setPages] = useState<MetaPage[]>([])
-  const [selectedPlatform, setSelectedPlatform] = useState<'facebook' | 'instagram' | 'both'>('both')
+  const [selectedPlatform, setSelectedPlatform] = useState<'facebook' | 'instagram' | 'both'>('instagram')
   const [selectedPage, setSelectedPage] = useState<string>('')
   const [scheduledTime, setScheduledTime] = useState('')
   const [loading, setLoading] = useState(false)
@@ -67,11 +69,13 @@ export default function MetaPosting({
 
       if (response.ok) {
         const data = await response.json()
-        setPages(data.pages || [])
+        // The API returns 'available' array, not 'pages'
+        const availablePages = data.available || []
+        setPages(availablePages)
         
         // Auto-select first page if available
-        if (data.pages && data.pages.length > 0) {
-          setSelectedPage(data.pages[0].id)
+        if (availablePages.length > 0) {
+          setSelectedPage(availablePages[0].id)
         }
       }
     } catch (error) {
@@ -108,6 +112,7 @@ export default function MetaPosting({
           caption,
           hashtags,
           mediaUrl,
+          mediaUrls,
           scheduledTime: scheduledTime || undefined,
           platform: selectedPlatform,
           postId,
@@ -123,8 +128,8 @@ export default function MetaPosting({
 
       setSuccess(
         selectedPlatform === 'both' 
-          ? 'Content scheduled for both Facebook and Instagram!'
-          : `Content scheduled for ${selectedPlatform}!`
+          ? 'Content posted to Instagram and Facebook!'
+          : 'Content posted to Instagram!'
       )
       
       onPosted?.(data.result)
@@ -150,7 +155,7 @@ export default function MetaPosting({
         <div className="flex items-center space-x-2">
           <AlertCircle className="h-4 w-4 text-yellow-600" />
           <p className="text-yellow-800 text-sm">
-            No Meta accounts connected. Please connect your Facebook/Instagram accounts first.
+            No Instagram accounts connected. Please connect your Instagram business account first.
           </p>
         </div>
       </div>
@@ -160,8 +165,8 @@ export default function MetaPosting({
   return (
     <div className="bg-white rounded-lg shadow-sm border p-6">
       <div className="flex items-center space-x-2 mb-4">
-        <Send className="h-5 w-5 text-blue-600" />
-        <h3 className="text-lg font-medium text-gray-900">Post to Meta Platforms</h3>
+          <Instagram className="h-5 w-5 text-pink-600" />
+          <h3 className="text-lg font-medium text-gray-900">Post to Instagram</h3>
       </div>
 
       {error && (
@@ -188,23 +193,25 @@ export default function MetaPosting({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Platform
           </label>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             {[
-              { id: 'facebook', name: 'Facebook', icon: Facebook, color: 'text-blue-600' },
-              { id: 'instagram', name: 'Instagram', icon: Instagram, color: 'text-pink-600' },
-              { id: 'both', name: 'Both', icon: Send, color: 'text-purple-600' }
+              { id: 'instagram', name: 'Instagram Only', icon: Instagram, color: 'text-pink-600', description: 'Primary platform for Indian businesses' },
+              { id: 'both', name: 'Instagram + Facebook', icon: Send, color: 'text-purple-600', description: 'Post to both platforms' }
             ].map((platform) => (
               <button
                 key={platform.id}
                 onClick={() => setSelectedPlatform(platform.id as any)}
-                className={`p-3 border-2 rounded-lg transition-colors ${
+                className={`p-4 border-2 rounded-lg transition-colors text-left ${
                   selectedPlatform === platform.id
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-pink-500 bg-pink-50'
                     : 'border-gray-300 hover:border-gray-400'
                 }`}
               >
-                <platform.icon className={`h-5 w-5 mx-auto mb-1 ${platform.color}`} />
-                <p className="text-xs font-medium">{platform.name}</p>
+                <div className="flex items-center mb-2">
+                  <platform.icon className={`h-5 w-5 mr-2 ${platform.color}`} />
+                  <p className="text-sm font-medium">{platform.name}</p>
+                </div>
+                <p className="text-xs text-gray-600">{platform.description}</p>
               </button>
             ))}
           </div>
@@ -213,18 +220,17 @@ export default function MetaPosting({
         {/* Page Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Facebook Page
+            Instagram Business Account
           </label>
           <select
             value={selectedPage}
             onChange={(e) => setSelectedPage(e.target.value)}
             className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
-            <option value="">Select a page</option>
+            <option value="">Select your Instagram business account</option>
             {pages.map((page) => (
               <option key={page.id} value={page.id}>
-                {page.name}
-                {page.instagram_accounts.length > 0 && ' (with Instagram)'}
+                {page.instagram_accounts.length > 0 ? `📸 ${page.name} (@${page.instagram_accounts[0]?.username || 'business'})` : `❌ ${page.name} (No Instagram connected)`}
               </option>
             ))}
           </select>

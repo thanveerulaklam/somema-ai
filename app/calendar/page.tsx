@@ -110,10 +110,10 @@ export default function CalendarPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'draft': return 'bg-gray-100 text-gray-800'
-      case 'scheduled': return 'bg-blue-100 text-blue-800'
+      case 'draft': return 'bg-blue-100 text-blue-800'
+      case 'scheduled': return 'bg-red-100 text-red-800'
       case 'published': return 'bg-green-100 text-green-800'
-      case 'failed': return 'bg-red-100 text-red-800'
+      case 'failed': return 'bg-gray-100 text-gray-800'
       default: return 'bg-gray-100 text-gray-800'
     }
   }
@@ -274,7 +274,7 @@ export default function CalendarPage() {
                           return (
                             <div
                               key={post.id}
-                              className="flex items-center gap-1 p-1 bg-gray-50 rounded text-xs cursor-pointer hover:bg-gray-100"
+                              className={`flex items-center gap-1 p-1 rounded text-xs cursor-pointer hover:bg-gray-100 ${getStatusColor(post.status)}`}
                               onClick={() => handleDateClick(date)}
                             >
                               <PlatformIcon className="h-3 w-3" />

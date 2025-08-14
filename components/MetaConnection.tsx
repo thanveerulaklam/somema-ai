@@ -53,17 +53,31 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      
+      console.log('Fetching Meta connections for user:', user.id)
+      
       const response = await fetch('/api/meta/connect', {
         headers: {
           'Authorization': `Bearer ${user.id}`
         }
       })
-      if (!response.ok) throw new Error('Failed to fetch Meta connections')
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to fetch Meta connections')
+      }
+      
       const data = await response.json()
+      console.log('Meta connections data:', data)
+      
       setAvailable(data.available || [])
       setConnected(data.connected || [])
       setDebug(data.debug || null)
+      
+      console.log('Available pages:', data.available?.length || 0)
+      console.log('Connected accounts:', data.connected?.length || 0)
     } catch (err: any) {
+      console.error('Error fetching Meta connections:', err)
       setError(err.message || 'Failed to fetch Meta connections')
     } finally {
       setLoading(false)
@@ -197,6 +211,20 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
       {loading && (
         <div className="mb-2 flex items-center text-gray-500"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading...</div>
       )}
+      
+      {/* Connection Summary */}
+      {!loading && available.length > 0 && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-blue-800">
+              <strong>Connection Summary:</strong> {connected.length} of {available.reduce((total, page) => total + (page.instagram_accounts?.length || 0), 0)} Instagram accounts connected
+            </div>
+            <div className="text-xs text-blue-600">
+              {available.length} Facebook Pages found
+            </div>
+          </div>
+        </div>
+      )}
       <div className="space-y-6">
         {available.length === 0 && (
           <div className="text-gray-500">No Facebook Pages or Instagram accounts found.</div>
@@ -207,6 +235,7 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
               <div className="flex items-center space-x-2">
                 <Facebook className="h-5 w-5 text-blue-600" />
                 <span className="font-medium text-gray-900">{page.name}</span>
+                <span className="text-sm text-gray-500">(ID: {page.id})</span>
               </div>
             </div>
             <div className="ml-7 mt-2 space-y-2">
@@ -216,16 +245,21 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
                     <div className="flex items-center space-x-2">
                       <Instagram className="h-4 w-4 text-pink-500" />
                       <span className="text-gray-800">{insta.username}</span>
+                      <span className="text-sm text-gray-500">(ID: {insta.id})</span>
                     </div>
                     {isConnected(page.id, insta.id) ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDisconnect(page.id, insta.id)}
-                        disabled={loading}
-                      >
-                        Disconnect
-                      </Button>
+                      <div className="flex items-center space-x-2">
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                        <span className="text-sm text-green-600">Connected</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleDisconnect(page.id, insta.id)}
+                          disabled={loading}
+                        >
+                          Disconnect
+                        </Button>
+                      </div>
                     ) : (
                       <Button
                         size="sm"

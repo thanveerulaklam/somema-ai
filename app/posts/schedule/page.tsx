@@ -363,7 +363,13 @@ export default function SchedulePostsPage() {
                   }
                   type="button"
                 >
-                  <img src={item.file_path} alt={item.file_name} className="object-cover w-full h-full" style={{ minWidth: 0, minHeight: 0 }} onError={e => { e.currentTarget.style.display = 'none'; }} />
+                  {item.mime_type && item.mime_type.startsWith('video/') ? (
+                    <video src={item.file_path} className="object-cover w-full h-full" style={{ minWidth: 0, minHeight: 0 }} />
+                  ) : item.file_path.match(/\.(mp4|webm|mov)$/i) ? (
+                    <video src={item.file_path} className="object-cover w-full h-full" style={{ minWidth: 0, minHeight: 0 }} />
+                  ) : (
+                    <img src={item.file_path} alt={item.file_name} className="object-cover w-full h-full" style={{ minWidth: 0, minHeight: 0 }} onError={e => { e.currentTarget.style.display = 'none'; }} />
+                  )}
                 </button>
               ))}
             </div>
@@ -390,7 +396,11 @@ export default function SchedulePostsPage() {
                 {/* Instagram-style post preview */}
                 <div className="w-full max-w-xs mx-auto md:mx-0">
                   <div className="bg-black rounded-t-lg overflow-hidden aspect-square w-full flex items-center justify-center">
-                    <img src={post.media_url} alt="Preview" className="object-cover w-full h-full" style={{ aspectRatio: '1/1' }} />
+                    {post.media_url && post.media_url.match(/\.(mp4|webm|mov)$/i) ? (
+                      <video src={post.media_url} controls className="object-cover w-full h-full" style={{ aspectRatio: '1/1' }} />
+                    ) : (
+                      <img src={post.media_url} alt="Preview" className="object-cover w-full h-full" style={{ aspectRatio: '1/1' }} />
+                    )}
                   </div>
                   <div className="bg-white rounded-b-lg border-t px-4 py-3">
                     <div className="flex items-center gap-2 mb-2">

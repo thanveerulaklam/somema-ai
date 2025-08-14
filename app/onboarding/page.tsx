@@ -98,13 +98,13 @@ export default function OnboardingPage() {
   const canProceed = () => {
     switch (step) {
       case 1:
-        return formData.business_name.trim().length > 0
+        return typeof formData.business_name === 'string' && formData.business_name.trim().length > 0
       case 2:
-        return formData.niche.trim().length > 0
+        return typeof formData.niche === 'string' && formData.niche.trim().length > 0
       case 3:
-        return formData.tone.trim().length > 0
+        return typeof formData.tone === 'string' && formData.tone.trim().length > 0
       case 4:
-        return formData.audience.trim().length > 0
+        return typeof formData.audience === 'string' && formData.audience.trim().length > 0
       default:
         return false
     }
@@ -208,16 +208,16 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-8 px-2 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-6 sm:space-y-8">
         <div>
-          <div className="mx-auto h-12 w-12 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-xl font-bold">S</span>
+          <div className="mx-auto h-10 w-10 sm:h-12 sm:w-12 bg-blue-600 rounded-lg flex items-center justify-center">
+            <span className="text-white text-lg sm:text-xl font-bold">S</span>
           </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          <h2 className="mt-4 sm:mt-6 text-center text-2xl sm:text-3xl font-extrabold text-gray-900">
             Set up your business profile
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-center text-xs sm:text-sm text-gray-600">
             Help us create personalized content for your brand
           </p>
         </div>
