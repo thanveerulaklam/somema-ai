@@ -125,6 +125,8 @@ export async function GET(request: NextRequest) {
         const businessesResponse = await fetch(`https://graph.facebook.com/v18.0/me/businesses?access_token=${accessToken}`)
         const businessesData = await businessesResponse.json()
         
+        console.log('Business Manager response:', businessesData)
+        
         if (!businessesData.error && businessesData.data && businessesData.data.length > 0) {
           console.log(`Found ${businessesData.data.length} business accounts`)
           
@@ -134,9 +136,13 @@ export async function GET(request: NextRequest) {
             const bizPagesResponse = await fetch(`https://graph.facebook.com/v18.0/${business.id}/owned_pages?access_token=${accessToken}`)
             const bizPagesData = await bizPagesResponse.json()
             
+            console.log(`Business pages response for ${business.name}:`, bizPagesData)
+            
             if (!bizPagesData.error && bizPagesData.data && bizPagesData.data.length > 0) {
               console.log(`Found ${bizPagesData.data.length} pages in business ${business.name}`)
               allPagesFromAPI = allPagesFromAPI.concat(bizPagesData.data)
+            } else {
+              console.log(`No pages found in business ${business.name} or error:`, bizPagesData.error?.message || 'No pages')
             }
           }
         } else {
@@ -160,7 +166,7 @@ export async function GET(request: NextRequest) {
           
           let instagramAccounts: Array<{id: string, username: string, name: string}> = []
           
-          // Check for Instagram Business Account
+          // Check for Instagram Business Account first
           if (instagramData.instagram_business_account) {
             const instagramDetailsResponse = await fetch(
               `https://graph.facebook.com/v18.0/${instagramData.instagram_business_account.id}?fields=id,username,name&access_token=${accessToken}`
@@ -172,8 +178,10 @@ export async function GET(request: NextRequest) {
             }
           }
           
-          // Check for Connected Instagram Account (non-business)
-          if (instagramData.connected_instagram_account) {
+          // Check for Connected Instagram Account (non-business) only if different from business account
+          if (instagramData.connected_instagram_account && 
+              (!instagramData.instagram_business_account || 
+               instagramData.connected_instagram_account.id !== instagramData.instagram_business_account.id)) {
             const connectedInstaResponse = await fetch(
               `https://graph.facebook.com/v18.0/${instagramData.connected_instagram_account.id}?fields=id,username,name&access_token=${accessToken}`
             )
