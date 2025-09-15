@@ -136,27 +136,93 @@ export async function sendPaymentConfirmationEmail(data: PaymentEmailData) {
       textLength: textContent.length
     });
 
-    // TODO: Integrate with actual email service (SendGrid, Resend, etc.)
-    // For now, we'll store the email in a database table for manual sending
-    const { error: emailLogError } = await supabase
-      .from('email_logs')
-      .insert({
-        to_email: data.userEmail,
-        subject: subject,
-        html_content: htmlContent,
-        text_content: textContent,
-        email_type: 'payment_confirmation',
-        status: 'pending',
-        created_at: new Date().toISOString()
-      });
+    // Send email using Resend
+    if (process.env.RESEND_API_KEY) {
+      try {
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: 'Quely AI <noreply@quely.ai>', // You'll need to verify this domain
+            to: [data.userEmail],
+            subject: subject,
+            html: htmlContent,
+            text: textContent,
+          }),
+        });
 
-    if (emailLogError) {
-      console.error('❌ Failed to log email:', emailLogError);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`Resend API error: ${errorData.message}`);
+        }
+
+        const result = await response.json();
+        console.log('✅ Email sent via Resend:', result.id);
+
+        // Log successful email
+        const { error: emailLogError } = await supabase
+          .from('email_logs')
+          .insert({
+            to_email: data.userEmail,
+            subject: subject,
+            html_content: htmlContent,
+            text_content: textContent,
+            email_type: 'payment_confirmation',
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
+          });
+
+        if (emailLogError) {
+          console.error('❌ Failed to log email:', emailLogError);
+        }
+
+        return { success: true, message: 'Email sent successfully', emailId: result.id };
+      } catch (resendError) {
+        console.error('❌ Resend email error:', resendError);
+        
+        // Fallback: Log email for manual sending
+        const { error: emailLogError } = await supabase
+          .from('email_logs')
+          .insert({
+            to_email: data.userEmail,
+            subject: subject,
+            html_content: htmlContent,
+            text_content: textContent,
+            email_type: 'payment_confirmation',
+            status: 'failed',
+            error_message: resendError instanceof Error ? resendError.message : 'Unknown error',
+            created_at: new Date().toISOString()
+          });
+
+        return { success: false, error: resendError instanceof Error ? resendError.message : 'Email sending failed' };
+      }
     } else {
-      console.log('✅ Email logged for sending');
-    }
+      // No Resend API key - log email for manual sending
+      console.log('⚠️ No Resend API key found, logging email for manual sending');
+      
+      const { error: emailLogError } = await supabase
+        .from('email_logs')
+        .insert({
+          to_email: data.userEmail,
+          subject: subject,
+          html_content: htmlContent,
+          text_content: textContent,
+          email_type: 'payment_confirmation',
+          status: 'pending',
+          created_at: new Date().toISOString()
+        });
 
-    return { success: true, message: 'Email queued for sending' };
+      if (emailLogError) {
+        console.error('❌ Failed to log email:', emailLogError);
+        return { success: false, error: 'Failed to log email' };
+      }
+
+      return { success: true, message: 'Email logged for manual sending' };
+    }
 
   } catch (error) {
     console.error('❌ Error sending payment confirmation email:', error);
@@ -230,26 +296,93 @@ export async function sendWelcomeEmail(data: WelcomeEmailData) {
       </html>
     `;
 
-    // Log email for sending
-    const { error: emailLogError } = await supabase
-      .from('email_logs')
-      .insert({
-        to_email: data.userEmail,
-        subject: subject,
-        html_content: htmlContent,
-        text_content: `Welcome to Quely AI! Your ${data.planName} is now active. Credits: ${data.credits.posts} posts, ${data.credits.enhancements} enhancements.`,
-        email_type: 'welcome',
-        status: 'pending',
-        created_at: new Date().toISOString()
-      });
+    // Send email using Resend
+    if (process.env.RESEND_API_KEY) {
+      try {
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: 'Quely AI <noreply@quely.ai>', // You'll need to verify this domain
+            to: [data.userEmail],
+            subject: subject,
+            html: htmlContent,
+            text: `Welcome to Quely AI! Your ${data.planName} is now active. Credits: ${data.credits.posts} posts, ${data.credits.enhancements} enhancements.`,
+          }),
+        });
 
-    if (emailLogError) {
-      console.error('❌ Failed to log welcome email:', emailLogError);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`Resend API error: ${errorData.message}`);
+        }
+
+        const result = await response.json();
+        console.log('✅ Welcome email sent via Resend:', result.id);
+
+        // Log successful email
+        const { error: emailLogError } = await supabase
+          .from('email_logs')
+          .insert({
+            to_email: data.userEmail,
+            subject: subject,
+            html_content: htmlContent,
+            text_content: `Welcome to Quely AI! Your ${data.planName} is now active. Credits: ${data.credits.posts} posts, ${data.credits.enhancements} enhancements.`,
+            email_type: 'welcome',
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
+          });
+
+        if (emailLogError) {
+          console.error('❌ Failed to log welcome email:', emailLogError);
+        }
+
+        return { success: true, message: 'Welcome email sent successfully', emailId: result.id };
+      } catch (resendError) {
+        console.error('❌ Resend welcome email error:', resendError);
+        
+        // Fallback: Log email for manual sending
+        const { error: emailLogError } = await supabase
+          .from('email_logs')
+          .insert({
+            to_email: data.userEmail,
+            subject: subject,
+            html_content: htmlContent,
+            text_content: `Welcome to Quely AI! Your ${data.planName} is now active. Credits: ${data.credits.posts} posts, ${data.credits.enhancements} enhancements.`,
+            email_type: 'welcome',
+            status: 'failed',
+            error_message: resendError instanceof Error ? resendError.message : 'Unknown error',
+            created_at: new Date().toISOString()
+          });
+
+        return { success: false, error: resendError instanceof Error ? resendError.message : 'Welcome email sending failed' };
+      }
     } else {
-      console.log('✅ Welcome email logged for sending');
-    }
+      // No Resend API key - log email for manual sending
+      console.log('⚠️ No Resend API key found, logging welcome email for manual sending');
+      
+      const { error: emailLogError } = await supabase
+        .from('email_logs')
+        .insert({
+          to_email: data.userEmail,
+          subject: subject,
+          html_content: htmlContent,
+          text_content: `Welcome to Quely AI! Your ${data.planName} is now active. Credits: ${data.credits.posts} posts, ${data.credits.enhancements} enhancements.`,
+          email_type: 'welcome',
+          status: 'pending',
+          created_at: new Date().toISOString()
+        });
 
-    return { success: true, message: 'Welcome email queued for sending' };
+      if (emailLogError) {
+        console.error('❌ Failed to log welcome email:', emailLogError);
+        return { success: false, error: 'Failed to log welcome email' };
+      }
+
+      return { success: true, message: 'Welcome email logged for manual sending' };
+    }
 
   } catch (error) {
     console.error('❌ Error sending welcome email:', error);
