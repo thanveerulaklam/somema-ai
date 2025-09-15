@@ -1,11 +1,145 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { shouldBypassCredits } from '../../../lib/admin-utils'
+import { atomicPostCreditDeduction, ensureUserProfile } from '../../../lib/credit-utils'
+import { validateBusinessContext, validateString } from '../../../lib/validation-utils'
 
 export async function POST(request: NextRequest) {
   try {
+    // Get user ID from authorization header (support both JWT and user ID patterns)
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader) {
+      return NextResponse.json({ error: 'Authorization header required' }, { status: 401 });
+    }
+
+    let userId: string;
+    
+    // Check if it's a JWT token or user ID
+    if (authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      
+      // Try to validate as JWT token first
+      try {
+        const { data: { user }, error } = await createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        ).auth.getUser(token);
+        
+        if (error || !user) {
+          // If JWT validation fails, treat as user ID
+          userId = token;
+        } else {
+          userId = user.id;
+        }
+      } catch (error) {
+        // If JWT validation fails, treat as user ID
+        userId = token;
+      }
+    } else {
+      return NextResponse.json({ error: 'Invalid authorization format' }, { status: 401 });
+    }
+
+    if (!userId) {
+      return NextResponse.json({ error: 'User not found' }, { status: 401 });
+    }
+
     const { type, request: aiRequest } = await request.json()
 
+    // Validate input
     if (!type || !aiRequest) {
       return NextResponse.json({ error: 'Type and request are required' }, { status: 400 })
+    }
+
+    // Validate type parameter
+    const typeValidation = validateString(type, {
+      required: true,
+      allowedValues: ['caption', 'hashtags', 'textElements', 'imagePrompt']
+    });
+
+    if (!typeValidation.isValid) {
+      return NextResponse.json({ 
+        error: 'Invalid type parameter', 
+        details: typeValidation.errors 
+      }, { status: 400 })
+    }
+
+    // Validate business context
+    const contextValidation = validateBusinessContext(aiRequest);
+    if (!contextValidation.isValid) {
+      console.error('Business context validation failed:', contextValidation.errors);
+      console.error('Request data:', aiRequest);
+      return NextResponse.json({ 
+        error: 'Invalid request data', 
+        details: contextValidation.errors 
+      }, { status: 400 })
+    }
+
+    // Check if user is admin (bypass credits)
+    const bypassCredits = await shouldBypassCredits(userId)
+
+    let creditsResult;
+    
+    if (!bypassCredits) {
+      // Ensure user profile exists
+      const profileResult = await ensureUserProfile(userId);
+      if (!profileResult.success) {
+        return NextResponse.json({ 
+          error: 'Failed to initialize user profile',
+          details: profileResult.error
+        }, { status: 500 })
+      }
+
+      // Simple credit deduction without atomic function
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+
+      // Get current credits
+      const { data: userData, error: fetchError } = await supabase
+        .from('user_profiles')
+        .select('post_generation_credits')
+        .eq('user_id', userId)
+        .single();
+
+      if (fetchError || !userData) {
+        return NextResponse.json({ 
+          error: 'Failed to fetch user credits',
+          creditsRemaining: 0
+        }, { status: 500 })
+      }
+
+      const currentCredits = userData.post_generation_credits || 0;
+      
+      if (currentCredits < 1) {
+        return NextResponse.json({ 
+          error: 'No post generation credits remaining. Please upgrade your plan or purchase more credits.',
+          creditsRemaining: currentCredits
+        }, { status: 402 })
+      }
+
+      // Deduct 1 credit
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ 
+          post_generation_credits: currentCredits - 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId);
+
+      if (updateError) {
+        console.error('Credit deduction error:', updateError);
+        return NextResponse.json({ 
+          error: 'Failed to deduct credits',
+          creditsRemaining: currentCredits
+        }, { status: 500 })
+      }
+
+      creditsResult = { success: true, newBalance: currentCredits - 1 };
+      console.log('✅ Credit deduction successful. New balance:', creditsResult.newBalance)
+    } else {
+      console.log('👑 Admin user - bypassing credit check for content generation')
+      creditsResult = { success: true, newBalance: 999999 } // Admin gets unlimited credits
     }
 
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -33,7 +167,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
     }
 
-    return NextResponse.json({ success: true, result })
+    return NextResponse.json({ 
+      success: true, 
+      result,
+      creditsRemaining: creditsResult.newBalance
+    })
 
   } catch (error) {
     console.error('Content generation error:', error)
@@ -43,6 +181,16 @@ export async function POST(request: NextRequest) {
 
 async function generateCaption(request: any, apiKey: string): Promise<string> {
   const prompt = createCaptionPrompt(request)
+  
+  if (!prompt) {
+    throw new Error('Failed to create caption prompt')
+  }
+  
+  console.log('🚀 Starting CAPTION generation...')
+  console.log('📊 Request details:')
+  console.log('  - Model: gpt-4o-mini')
+  console.log('  - Max tokens: 300')
+  console.log('  - Prompt length:', prompt.length, 'characters')
   
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -69,16 +217,53 @@ async function generateCaption(request: any, apiKey: string): Promise<string> {
     })
   })
 
+  // Log response headers for cost tracking
+  console.log('📈 OpenAI API Response Headers:')
+  console.log('  - Status:', response.status)
+  console.log('  - X-Request-ID:', response.headers.get('x-request-id'))
+  console.log('  - X-RateLimit-Limit:', response.headers.get('x-ratelimit-limit'))
+  console.log('  - X-RateLimit-Remaining:', response.headers.get('x-ratelimit-remaining'))
+
   if (!response.ok) {
     throw new Error(`OpenAI API error: ${response.status}`)
   }
 
   const data = await response.json()
+  
+  // Log usage information
+  if (data.usage) {
+    console.log('💰 CAPTION Generation Usage:')
+    console.log('  - Input tokens:', data.usage.prompt_tokens)
+    console.log('  - Output tokens:', data.usage.completion_tokens)
+    console.log('  - Total tokens:', data.usage.total_tokens)
+    
+    // Calculate cost (gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output)
+    const inputCost = (data.usage.prompt_tokens / 1000000) * 0.15
+    const outputCost = (data.usage.completion_tokens / 1000000) * 0.60
+    const totalCost = inputCost + outputCost
+    
+    console.log('  - Input cost: $' + inputCost.toFixed(6))
+    console.log('  - Output cost: $' + outputCost.toFixed(6))
+    console.log('  - Total cost: $' + totalCost.toFixed(6))
+  }
+  
+  console.log('✅ CAPTION generation complete!')
+  
   return data.choices[0].message.content.trim()
 }
 
 async function generateHashtags(request: any, apiKey: string): Promise<string[]> {
   const prompt = createHashtagPrompt(request)
+  
+  if (!prompt) {
+    throw new Error('Failed to create hashtag prompt')
+  }
+  
+  console.log('🚀 Starting HASHTAGS generation...')
+  console.log('📊 Request details:')
+  console.log('  - Model: gpt-4o-mini')
+  console.log('  - Max tokens: 200')
+  console.log('  - Prompt length:', prompt.length, 'characters')
   
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -103,11 +288,36 @@ async function generateHashtags(request: any, apiKey: string): Promise<string[]>
     })
   })
 
+  // Log response headers for cost tracking
+  console.log('📈 OpenAI API Response Headers:')
+  console.log('  - Status:', response.status)
+  console.log('  - X-Request-ID:', response.headers.get('x-request-id'))
+
   if (!response.ok) {
     throw new Error(`OpenAI API error: ${response.status}`)
   }
 
   const data = await response.json()
+  
+  // Log usage information
+  if (data.usage) {
+    console.log('💰 HASHTAGS Generation Usage:')
+    console.log('  - Input tokens:', data.usage.prompt_tokens)
+    console.log('  - Output tokens:', data.usage.completion_tokens)
+    console.log('  - Total tokens:', data.usage.total_tokens)
+    
+    // Calculate cost (gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output)
+    const inputCost = (data.usage.prompt_tokens / 1000000) * 0.15
+    const outputCost = (data.usage.completion_tokens / 1000000) * 0.60
+    const totalCost = inputCost + outputCost
+    
+    console.log('  - Input cost: $' + inputCost.toFixed(6))
+    console.log('  - Output cost: $' + outputCost.toFixed(6))
+    console.log('  - Total cost: $' + totalCost.toFixed(6))
+  }
+  
+  console.log('✅ HASHTAGS generation complete!')
+  
   const content = data.choices[0].message.content.trim()
   
   // Extract hashtags from response
@@ -121,6 +331,16 @@ async function generateTextElements(request: any, apiKey: string): Promise<{
   cta: string
 }> {
   const prompt = createTextElementsPrompt(request)
+  
+  if (!prompt) {
+    throw new Error('Failed to create text elements prompt')
+  }
+  
+  console.log('🚀 Starting TEXT ELEMENTS generation...')
+  console.log('📊 Request details:')
+  console.log('  - Model: gpt-4o-mini')
+  console.log('  - Max tokens: 400')
+  console.log('  - Prompt length:', prompt.length, 'characters')
   
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -145,11 +365,36 @@ async function generateTextElements(request: any, apiKey: string): Promise<{
     })
   })
 
+  // Log response headers for cost tracking
+  console.log('📈 OpenAI API Response Headers:')
+  console.log('  - Status:', response.status)
+  console.log('  - X-Request-ID:', response.headers.get('x-request-id'))
+
   if (!response.ok) {
     throw new Error(`OpenAI API error: ${response.status}`)
   }
 
   const data = await response.json()
+  
+  // Log usage information
+  if (data.usage) {
+    console.log('💰 TEXT ELEMENTS Generation Usage:')
+    console.log('  - Input tokens:', data.usage.prompt_tokens)
+    console.log('  - Output tokens:', data.usage.completion_tokens)
+    console.log('  - Total tokens:', data.usage.total_tokens)
+    
+    // Calculate cost (gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output)
+    const inputCost = (data.usage.prompt_tokens / 1000000) * 0.15
+    const outputCost = (data.usage.completion_tokens / 1000000) * 0.60
+    const totalCost = inputCost + outputCost
+    
+    console.log('  - Input cost: $' + inputCost.toFixed(6))
+    console.log('  - Output cost: $' + outputCost.toFixed(6))
+    console.log('  - Total cost: $' + totalCost.toFixed(6))
+  }
+  
+  console.log('✅ TEXT ELEMENTS generation complete!')
+  
   const content = data.choices[0].message.content.trim()
   
   try {
@@ -171,6 +416,16 @@ async function generateTextElements(request: any, apiKey: string): Promise<{
 
 async function generateImagePrompt(request: any, apiKey: string): Promise<string> {
   const prompt = createImagePromptRequest(request)
+  
+  if (!prompt) {
+    throw new Error('Failed to create image prompt')
+  }
+  
+  console.log('🚀 Starting IMAGE PROMPT generation...')
+  console.log('📊 Request details:')
+  console.log('  - Model: gpt-4o-mini')
+  console.log('  - Max tokens: 300')
+  console.log('  - Prompt length:', prompt.length, 'characters')
   
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -195,16 +450,45 @@ async function generateImagePrompt(request: any, apiKey: string): Promise<string
     })
   })
 
+  // Log response headers for cost tracking
+  console.log('📈 OpenAI API Response Headers:')
+  console.log('  - Status:', response.status)
+  console.log('  - X-Request-ID:', response.headers.get('x-request-id'))
+
   if (!response.ok) {
     throw new Error(`OpenAI API error: ${response.status}`)
   }
 
   const data = await response.json()
+  
+  // Log usage information
+  if (data.usage) {
+    console.log('💰 IMAGE PROMPT Generation Usage:')
+    console.log('  - Input tokens:', data.usage.prompt_tokens)
+    console.log('  - Output tokens:', data.usage.completion_tokens)
+    console.log('  - Total tokens:', data.usage.total_tokens)
+    
+    // Calculate cost (gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output)
+    const inputCost = (data.usage.prompt_tokens / 1000000) * 0.15
+    const outputCost = (data.usage.completion_tokens / 1000000) * 0.60
+    const totalCost = inputCost + outputCost
+    
+    console.log('  - Input cost: $' + inputCost.toFixed(6))
+    console.log('  - Output cost: $' + outputCost.toFixed(6))
+    console.log('  - Total cost: $' + totalCost.toFixed(6))
+  }
+  
+  console.log('✅ IMAGE PROMPT generation complete!')
+  
   return data.choices[0].message.content.trim()
 }
 
 // Helper functions for creating prompts
 function createCaptionPrompt(request: any): string {
+  if (!request) {
+    return 'Create an engaging social media caption for Instagram that drives engagement and encourages interaction.'
+  }
+  
   const { businessContext, platform, theme, customPrompt, tone, targetAudience, niche } = request
   
   // If there's a custom prompt (from image analysis), use it directly
@@ -212,7 +496,7 @@ function createCaptionPrompt(request: any): string {
     return customPrompt
   }
   
-  return `Create an engaging social media caption for ${platform} that:
+  return `Create an engaging social media caption for ${platform || 'Instagram'} that:
   
 Business Context: ${businessContext}
 Content Theme: ${theme}
@@ -236,6 +520,10 @@ Generate a compelling caption that will drive engagement and align with the busi
 }
 
 function createHashtagPrompt(request: any): string {
+  if (!request) {
+    return 'Generate relevant hashtags for Instagram social media post that will increase visibility and engagement.'
+  }
+  
   const { businessContext, platform, theme, customPrompt, niche } = request
   
   // If there's a custom prompt (from image analysis), use it directly
@@ -243,7 +531,7 @@ function createHashtagPrompt(request: any): string {
     return customPrompt
   }
   
-  return `Generate relevant hashtags for a ${platform} post about:
+  return `Generate relevant hashtags for a ${platform || 'Instagram'} post about:
   
 Business Context: ${businessContext}
 Content Theme: ${theme}
@@ -263,6 +551,10 @@ Return only the hashtags separated by spaces, starting with #.`
 }
 
 function createTextElementsPrompt(request: any): string {
+  if (!request) {
+    return 'Create text elements for a social media visual post with headline, subtext, and call-to-action.'
+  }
+  
   const { businessContext, platform, theme, customPrompt, tone } = request
   
   // If there's a custom prompt (from image analysis), use it directly
@@ -295,6 +587,10 @@ Requirements:
 }
 
 function createImagePromptRequest(request: any): string {
+  if (!request) {
+    return 'Create a detailed image generation prompt for a professional social media post.'
+  }
+  
   const { businessContext, platform, theme, customPrompt, tone } = request
   
   return `Create a detailed image generation prompt for:

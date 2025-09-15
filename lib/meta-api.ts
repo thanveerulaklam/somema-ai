@@ -1,4 +1,5 @@
 import { FacebookAdsApi } from 'facebook-nodejs-business-sdk'
+import { createClient } from '@supabase/supabase-js'
 
 export interface MetaCredentials {
   accessToken: string
@@ -28,6 +29,7 @@ export class MetaAPIService {
   private instagramBusinessAccountId?: string
   private appId: string
   private appSecret: string
+  private supabase: any
 
   constructor(credentials: MetaCredentials) {
     this.accessToken = credentials.accessToken
@@ -38,6 +40,90 @@ export class MetaAPIService {
     
     // Initialize Facebook Ads API
     FacebookAdsApi.init(this.accessToken)
+    
+    // Initialize Supabase client for media uploads
+    this.supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+  }
+
+  /**
+   * Validate and convert data URLs to public URLs
+   */
+  private async validateAndConvertMediaUrl(mediaUrl: string): Promise<string> {
+    if (!mediaUrl) return mediaUrl
+    
+    // If it's already a public URL, return as is
+    if (mediaUrl.startsWith('http') && !mediaUrl.startsWith('data:')) {
+      return mediaUrl
+    }
+    
+    // If it's a data URL, convert to public URL
+    if (mediaUrl.startsWith('data:')) {
+      console.log('Converting data URL to public URL...')
+      try {
+        // Convert data URL to blob
+        const response = await fetch(mediaUrl)
+        const blob = await response.blob()
+        
+        // Upload to Supabase storage
+        const fileExt = blob.type.includes('video') ? 'mp4' : 'jpg'
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+        const filePath = `media/converted/${fileName}`
+        
+        const { error: uploadError } = await this.supabase.storage
+          .from('media')
+          .upload(filePath, blob)
+        
+        if (uploadError) {
+          console.error('Failed to upload converted media:', uploadError)
+          throw new Error('Failed to convert data URL to public URL')
+        }
+        
+        // Get public URL
+        const { data: { publicUrl } } = this.supabase.storage
+          .from('media')
+          .getPublicUrl(filePath)
+        
+        console.log('Data URL converted to public URL:', publicUrl)
+        return publicUrl
+      } catch (error) {
+        console.error('Error converting data URL:', error)
+        throw new Error('Failed to convert data URL to public URL')
+      }
+    }
+    
+    // If it's a blob URL, this should not happen in server-side code
+    if (mediaUrl.startsWith('blob:')) {
+      throw new Error('Blob URLs are not supported in server-side posting. Please use public URLs.')
+    }
+    
+    return mediaUrl
+  }
+
+  /**
+   * Validate and convert all media URLs in post content
+   */
+  private async validatePostContent(content: PostContent): Promise<PostContent> {
+    const validatedContent = { ...content }
+    
+    // Validate single media URL
+    if (content.mediaUrl) {
+      validatedContent.mediaUrl = await this.validateAndConvertMediaUrl(content.mediaUrl)
+    }
+    
+    // Validate media URLs array
+    if (content.mediaUrls && content.mediaUrls.length > 0) {
+      const validatedUrls = []
+      for (const url of content.mediaUrls) {
+        const validatedUrl = await this.validateAndConvertMediaUrl(url)
+        validatedUrls.push(validatedUrl)
+      }
+      validatedContent.mediaUrls = validatedUrls
+    }
+    
+    return validatedContent
   }
 
   /**
@@ -48,6 +134,10 @@ export class MetaAPIService {
       if (!this.pageId) {
         throw new Error('Facebook Page ID is required')
       }
+
+      // Validate and convert media URLs
+      const validatedContent = await this.validatePostContent(content)
+      console.log('Validated Facebook post content:', validatedContent)
 
       // Get the page access token for the specific page
       const pageResponse = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${this.accessToken}`)
@@ -65,22 +155,62 @@ export class MetaAPIService {
       const pageAccessToken = selectedPage.access_token
       
       const postData: any = {
-        message: this.formatMessage(content.caption, content.hashtags),
+        message: this.formatMessage(validatedContent.caption, validatedContent.hashtags),
         access_token: pageAccessToken
       }
 
       // Add media if provided
-      if (content.mediaUrl) {
-        // Check if it's a data URL and convert to public URL if needed
-        let mediaUrl = content.mediaUrl
-        if (mediaUrl.startsWith('data:')) {
-          // For now, skip media posting if it's a data URL
-          console.log('Skipping media posting - data URL not supported by Facebook API')
-          return {
-            success: false,
-            error: 'Media posting with data URLs is not supported. Please use a public media URL.'
+      if (validatedContent.mediaUrls && validatedContent.mediaUrls.length > 1) {
+        // Facebook carousel: create multiple media first, then publish with attached_media
+        const createdMediaIds: string[] = []
+        for (const url of validatedContent.mediaUrls) {
+          const isVideo = /\.(mp4|mov|avi|wmv|flv|webm|mkv)$/i.test(url)
+          if (isVideo) {
+            const payload = {
+              file_url: url,
+              description: this.formatMessage(validatedContent.caption, validatedContent.hashtags),
+              access_token: pageAccessToken
+            }
+            const mediaResponse = await fetch(`https://graph.facebook.com/v18.0/${this.pageId}/videos`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            })
+            const mediaData = await mediaResponse.json()
+            if (mediaData.error) throw new Error(JSON.stringify(mediaData.error))
+            createdMediaIds.push(mediaData.id)
+          } else {
+            const payload = {
+              url,
+              published: false,
+              access_token: pageAccessToken
+            }
+            const mediaResponse = await fetch(`https://graph.facebook.com/v18.0/${this.pageId}/photos`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            })
+            const mediaData = await mediaResponse.json()
+            if (mediaData.error) throw new Error(JSON.stringify(mediaData.error))
+            createdMediaIds.push(mediaData.id)
           }
         }
+
+        if (createdMediaIds.length === 0) {
+          throw new Error('No valid media created for Facebook carousel')
+        }
+
+        const attached_media = createdMediaIds.map(id => ({ media_fbid: id }))
+        const carouselPayload: any = {
+          message: this.formatMessage(content.caption, content.hashtags),
+          attached_media,
+          access_token: pageAccessToken
+        }
+        const carouselResponse = await fetch(`https://graph.facebook.com/v18.0/${this.pageId}/feed`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(carouselPayload)
+        })
+        const carouselData = await carouselResponse.json()
+        if (carouselData.error) throw new Error(JSON.stringify(carouselData.error))
+        return { success: true, postId: carouselData.id, scheduledTime: validatedContent.scheduledTime }
+      } else if (validatedContent.mediaUrl) {
+        // Media URL has already been validated and converted
+        let mediaUrl = validatedContent.mediaUrl
 
         // Determine if it's a video or image based on file extension
         const isVideo = /\.(mp4|mov|avi|wmv|flv|webm|mkv)$/i.test(mediaUrl)
@@ -89,7 +219,7 @@ export class MetaAPIService {
           // For videos, use the videos endpoint
           const payload = {
             file_url: mediaUrl,
-            description: this.formatMessage(content.caption, content.hashtags),
+            description: this.formatMessage(validatedContent.caption, validatedContent.hashtags),
             access_token: pageAccessToken
           }
           console.log('Facebook video post payload:', JSON.stringify(payload, null, 2))
@@ -112,13 +242,13 @@ export class MetaAPIService {
           return {
             success: true,
             postId: mediaData.id,
-            scheduledTime: content.scheduledTime
+            scheduledTime: validatedContent.scheduledTime
           }
         } else {
         // For images, use the photos endpoint
         const payload = {
             url: mediaUrl,
-          message: this.formatMessage(content.caption, content.hashtags),
+          message: this.formatMessage(validatedContent.caption, validatedContent.hashtags),
           access_token: pageAccessToken
         }
         console.log('Facebook photo post payload:', JSON.stringify(payload, null, 2))
@@ -141,7 +271,7 @@ export class MetaAPIService {
         return {
           success: true,
           postId: mediaData.id,
-          scheduledTime: content.scheduledTime
+          scheduledTime: validatedContent.scheduledTime
           }
         }
       } else {
@@ -321,24 +451,38 @@ export class MetaAPIService {
   }
 
   /**
-   * Get user's Facebook pages
+   * Get user's Facebook pages with comprehensive pagination
    */
   async getFacebookPages(): Promise<Array<{ id: string; name: string; access_token: string }>> {
     try {
       console.log('Fetching Facebook pages with token:', this.accessToken.substring(0, 20) + '...')
       
-      const response = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${this.accessToken}`)
-      const data = await response.json()
+      let allPages: Array<{ id: string; name: string; access_token: string }> = []
+      let nextUrl = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,access_token&access_token=${this.accessToken}&limit=100`
       
-      console.log('Facebook pages API response:', data)
-      
-      if (data.error) {
-        console.error('Facebook pages API error:', data.error)
-        throw new Error(data.error.message)
+      while (nextUrl) {
+        console.log('Fetching pages from:', nextUrl)
+        const response = await fetch(nextUrl)
+        const data = await response.json()
+        
+        console.log('Facebook pages API response:', data)
+        
+        if (data.error) {
+          console.error('Facebook pages API error:', data.error)
+          throw new Error(data.error.message)
+        }
+
+        if (data.data && Array.isArray(data.data)) {
+          allPages = allPages.concat(data.data)
+          console.log(`✅ Fetched ${data.data.length} pages in this batch`)
+        }
+        
+        // Check for next page
+        nextUrl = data.paging?.next || null
       }
 
-      console.log('Found pages:', data.data?.length || 0)
-      return data.data || []
+      console.log(`📊 Total Facebook pages found: ${allPages.length}`)
+      return allPages
     } catch (error: any) {
       console.error('Error fetching Facebook pages:', error)
       throw error
@@ -346,33 +490,82 @@ export class MetaAPIService {
   }
 
   /**
-   * Get Instagram business accounts for a page
+   * Get Instagram business accounts for a page with comprehensive discovery
    */
   async getInstagramAccounts(pageId: string): Promise<Array<{ id: string; username: string; name: string }>> {
     try {
-      const response = await fetch(
-        `https://graph.facebook.com/v18.0/${pageId}?fields=instagram_business_account&access_token=${this.accessToken}`
-      )
-      const data = await response.json()
+      const instagramAccounts: Array<{ id: string; username: string; name: string }> = []
       
-      if (data.error) {
-        throw new Error(data.error.message)
+      // Method 1: Check for Instagram Business Account
+      const pageResponse = await fetch(
+        `https://graph.facebook.com/v18.0/${pageId}?fields=instagram_business_account,connected_instagram_account&access_token=${this.accessToken}`
+      )
+      const pageData = await pageResponse.json()
+      
+      console.log(`Instagram data for page ${pageId}:`, pageData)
+      
+      if (pageData.error) {
+        console.error(`Error getting page data for ${pageId}:`, pageData.error)
+        return []
       }
 
-      if (data.instagram_business_account) {
-        const instagramResponse = await fetch(
-          `https://graph.facebook.com/v18.0/${data.instagram_business_account.id}?fields=id,username,name&access_token=${this.accessToken}`
+      // Check for Instagram Business Account
+      if (pageData.instagram_business_account) {
+        console.log(`✅ Found Instagram Business Account for page ${pageId}`)
+        const instagramDetailsResponse = await fetch(
+          `https://graph.facebook.com/v18.0/${pageData.instagram_business_account.id}?fields=id,username,name&access_token=${this.accessToken}`
         )
-        const instagramData = await instagramResponse.json()
+        const instagramDetails = await instagramDetailsResponse.json()
         
-        if (instagramData.error) {
-          throw new Error(instagramData.error.message)
+        if (!instagramDetails.error) {
+          instagramAccounts.push(instagramDetails)
+          console.log(`✅ Added Instagram Business: ${instagramDetails.username} (${instagramDetails.id})`)
+        } else {
+          console.log(`❌ Error getting Instagram business details:`, instagramDetails.error)
         }
-
-        return [instagramData]
       }
-
-      return []
+      
+      // Method 2: Check for Connected Instagram Account (non-business) only if different from business account
+      if (pageData.connected_instagram_account && 
+          (!pageData.instagram_business_account || 
+           pageData.connected_instagram_account.id !== pageData.instagram_business_account.id)) {
+        console.log(`✅ Found Connected Instagram Account for page ${pageId}`)
+        const connectedInstaResponse = await fetch(
+          `https://graph.facebook.com/v18.0/${pageData.connected_instagram_account.id}?fields=id,username,name&access_token=${this.accessToken}`
+        )
+        const connectedInstaDetails = await connectedInstaResponse.json()
+        
+        if (!connectedInstaDetails.error) {
+          instagramAccounts.push(connectedInstaDetails)
+          console.log(`✅ Added Connected Instagram: ${connectedInstaDetails.username} (${connectedInstaDetails.id})`)
+        } else {
+          console.log(`❌ Error getting connected Instagram details:`, connectedInstaDetails.error)
+        }
+      }
+      
+      // Method 3: Check for Instagram accounts through the page's Instagram edge
+      try {
+        const instagramEdgeResponse = await fetch(
+          `https://graph.facebook.com/v18.0/${pageId}/instagram_accounts?fields=id,username,name&access_token=${this.accessToken}`
+        )
+        const instagramEdgeData = await instagramEdgeResponse.json()
+        
+        if (!instagramEdgeData.error && instagramEdgeData.data && Array.isArray(instagramEdgeData.data)) {
+          console.log(`✅ Found ${instagramEdgeData.data.length} Instagram accounts through edge for page ${pageId}`)
+          for (const insta of instagramEdgeData.data) {
+            // Check if this account is not already added
+            if (!instagramAccounts.some(acc => acc.id === insta.id)) {
+              instagramAccounts.push(insta)
+              console.log(`✅ Added Instagram via edge: ${insta.username} (${insta.id})`)
+            }
+          }
+        }
+      } catch (edgeError) {
+        console.log(`ℹ️  Instagram edge not available for page ${pageId}:`, edgeError)
+      }
+      
+      console.log(`📊 Total Instagram accounts for page ${pageId}: ${instagramAccounts.length}`)
+      return instagramAccounts
     } catch (error: any) {
       console.error('Error fetching Instagram accounts:', error)
       throw error

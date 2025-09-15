@@ -57,22 +57,24 @@ export default function MonthlyPage() {
   const [showEnhancedImages, setShowEnhancedImages] = useState<{ [postId: string]: { [imageIndex: number]: boolean } }>({})
   const [contentGenerated, setContentGenerated] = useState(false)
   const [modalSelectedImages, setModalSelectedImages] = useState<any[]>([])
+  const [defaultTime, setDefaultTime] = useState('11:00')
+  const [editingTime, setEditingTime] = useState<string | null>(null)
   
   const router = useRouter()
 
-  // Helper to get the next 30 real calendar days (local time)
+  // Helper to get the next 30 real calendar days starting from tomorrow (local time)
   function getNext30Days() {
-    const days: { dayName: string; date: string; dateObj: Date }[] = [];
+    const days: { day: string; date: string; dateObj: Date }[] = [];
     const today = new Date();
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     
-    for (let i = 0; i < 30; i++) {
+    for (let i = 1; i <= 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
       const dayName = dayNames[d.getDay()];
       const dateStr = `${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-      days.push({ dayName, date: dateStr, dateObj: d });
+      days.push({ day: dayName, date: dateStr, dateObj: d });
     }
     return days;
   }
@@ -121,7 +123,7 @@ export default function MonthlyPage() {
     setPosts(monthlyPosts)
   }
 
-  const generateWeeklyContent = async () => {
+  const generateMonthlyContent = async () => {
     if (Object.values(imageSelections).flat().length === 0) {
       setError('Please select at least one image to generate content')
       return
@@ -148,7 +150,7 @@ export default function MonthlyPage() {
     try {
       console.log('Sending userProfile to API:', userProfile)
       // Call the server-side API to generate content
-      const response = await fetch('/api/generate-weekly-content', {
+      const response = await fetch('/api/generate-monthly-content', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -167,11 +169,11 @@ export default function MonthlyPage() {
       }
 
       const data = await response.json()
-      console.log('Generated weekly content:', data.generatedPosts)
+      console.log('Generated monthly content:', data.generatedPosts)
 
-      // Update posts with generated content
+      // Update posts with generated content - EXACT SAME LOGIC AS WEEKLY
       const updatedPosts = posts.map((post, index) => {
-        const dayKey = upcomingWeekDays[index]?.day + upcomingWeekDays[index]?.date
+        const dayKey = next30Days[index]?.day + ' ' + next30Days[index]?.date
         const selectedImages = imageSelections[dayKey]
         
         // Only update posts with images
@@ -183,7 +185,7 @@ export default function MonthlyPage() {
             }
         }
 
-        // Find the generated content for this day
+        // Find the generated content for this day - EXACT SAME LOGIC AS WEEKLY
         const generatedPost = data.generatedPosts.find((gp: any) => gp.dayKey === dayKey)
         
         if (generatedPost) {
@@ -196,7 +198,7 @@ export default function MonthlyPage() {
             status: 'generated' as const,
             selectedImage: generatedPost.selectedImages[0],
             selectedImages: generatedPost.selectedImages, // <-- use backend array
-            scheduledFor: generatedPost.scheduledFor
+            scheduledFor: getNextMonthDate(post.day.toString(), defaultTime)
             }
           }
 
@@ -209,13 +211,13 @@ export default function MonthlyPage() {
       })
 
       setPosts(updatedPosts)
-      setSuccess('Weekly content generated successfully!')
+      setSuccess('Monthly content generated successfully!')
       
       // Clear the image selections and mark content as generated
       setImageSelections({})
       setContentGenerated(true)
     } catch (error: any) {
-      console.error('Error generating weekly content:', error)
+      console.error('Error generating monthly content:', error)
       setError(error.message || 'Failed to generate content. Please try again.')
     } finally {
       setGenerating(false)
@@ -264,7 +266,7 @@ export default function MonthlyPage() {
     return prompts[theme as keyof typeof prompts] || prompts['Product Showcase']
   }
 
-  const saveWeeklyContent = async () => {
+  const saveMonthlyContent = async () => {
     setLoading(true)
     setError('')
 
@@ -278,8 +280,19 @@ export default function MonthlyPage() {
         .map(post => {
           // Determine if this is a carousel post
           const isCarousel = post.selectedImages && post.selectedImages.length > 1
-          const mediaUrls = isCarousel ? post.selectedImages!.map(img => img.file_path) : []
-          const mediaUrl = isCarousel ? post.selectedImages![0].file_path : post.selectedImage?.file_path
+          
+          // Use enhanced images if available, otherwise use original images
+          const mediaUrls = isCarousel 
+            ? post.selectedImages!.map((img, idx) => {
+                // Check if there's an enhanced image for this index
+                const enhancedImage = enhancedImages[post.id]?.[idx]
+                return enhancedImage || img.file_path
+              })
+            : []
+          
+          const mediaUrl = isCarousel 
+            ? (enhancedImages[post.id]?.[0] || post.selectedImages![0].file_path)
+            : (enhancedImages[post.id]?.[0] || post.selectedImage?.file_path)
           
           return {
             user_id: user.id,
@@ -287,11 +300,12 @@ export default function MonthlyPage() {
             hashtags: post.hashtags,
             platform: platform,
             status: 'draft',
-            scheduled_for: post.scheduledFor || getNextWeekDate(post.day.toString()),
+            scheduled_for: post.scheduledFor || getNextMonthDate(post.day.toString()),
             media_url: mediaUrl,
             media_urls: mediaUrls,
+            enhanced_image_url: isCarousel ? (enhancedImages[post.id]?.[0] || null) : (enhancedImages[post.id]?.[0] || null),
             theme: post.theme,
-            content_type: 'weekly',
+            content_type: 'monthly',
             business_context: `Day: ${post.day}, Image Prompt: ${post.imagePrompt}`
           }
         })
@@ -307,10 +321,8 @@ export default function MonthlyPage() {
 
       if (error) throw error
 
-      setSuccess('Weekly content saved successfully!')
-      setTimeout(() => {
-        router.push('/calendar')
-      }, 2000)
+      setSuccess('Monthly content saved successfully!')
+      router.push('/dashboard')
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -318,7 +330,7 @@ export default function MonthlyPage() {
     }
   }
 
-  const scheduleWeeklyContent = async () => {
+  const scheduleMonthlyContent = async () => {
     setLoading(true)
     setError('')
 
@@ -332,8 +344,19 @@ export default function MonthlyPage() {
         .map(post => {
           // Determine if this is a carousel post
           const isCarousel = post.selectedImages && post.selectedImages.length > 1
-          const mediaUrls = isCarousel ? post.selectedImages!.map(img => img.file_path) : []
-          const mediaUrl = isCarousel ? post.selectedImages![0].file_path : post.selectedImage?.file_path
+          
+          // Use enhanced images if available, otherwise use original images
+          const mediaUrls = isCarousel 
+            ? post.selectedImages!.map((img, idx) => {
+                // Check if there's an enhanced image for this index
+                const enhancedImage = enhancedImages[post.id]?.[idx]
+                return enhancedImage || img.file_path
+              })
+            : []
+          
+          const mediaUrl = isCarousel 
+            ? (enhancedImages[post.id]?.[0] || post.selectedImages![0].file_path)
+            : (enhancedImages[post.id]?.[0] || post.selectedImage?.file_path)
           
           return {
             user_id: user.id,
@@ -341,11 +364,12 @@ export default function MonthlyPage() {
             hashtags: post.hashtags,
             platform: platform,
             status: 'scheduled',
-            scheduled_for: post.scheduledFor || getNextWeekDate(post.day.toString()),
+            scheduled_for: post.scheduledFor || getNextMonthDate(post.day.toString()),
             media_url: mediaUrl,
             media_urls: mediaUrls,
+            enhanced_image_url: isCarousel ? (enhancedImages[post.id]?.[0] || null) : (enhancedImages[post.id]?.[0] || null),
             theme: post.theme,
-            content_type: 'weekly',
+            content_type: 'monthly',
             business_context: `Day: ${post.day}, Image Prompt: ${post.imagePrompt}`
           }
         })
@@ -361,7 +385,7 @@ export default function MonthlyPage() {
 
       if (error) throw error
 
-      setSuccess('Weekly content scheduled successfully!')
+      setSuccess('Monthly content scheduled successfully!')
       setTimeout(() => {
         router.push('/calendar')
       }, 2000)
@@ -372,15 +396,58 @@ export default function MonthlyPage() {
     }
   }
 
-  const getNextWeekDate = (dayName: string) => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-    const today = new Date()
-    const targetDay = days.indexOf(dayName)
-    const currentDay = today.getDay()
-    const daysToAdd = (targetDay - currentDay + 7) % 7
-    const nextWeekDate = new Date(today)
-    nextWeekDate.setDate(today.getDate() + daysToAdd + 7) // Next week
-    return nextWeekDate.toISOString()
+  const getNextMonthDate = (dayNumber: string, time: string = defaultTime) => {
+    const dayIndex = parseInt(dayNumber) - 1 // Convert to 0-based index
+    const targetDate = next30Days[dayIndex]?.dateObj
+    
+    if (!targetDate) {
+      console.error('Invalid day number:', dayNumber)
+      return new Date().toISOString()
+    }
+    
+    // Create a new date object from the target date
+    const scheduledDate = new Date(targetDate)
+    
+    // Parse the time and set it
+    const [hours, minutes] = time.split(':').map(Number)
+    scheduledDate.setHours(hours, minutes, 0, 0)
+    
+    return scheduledDate.toISOString()
+  }
+
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      month: 'short', 
+      day: 'numeric',
+      year: 'numeric'
+    }) + ' at ' + date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false 
+    })
+  }
+
+  const updateAllPostTimes = (newTime: string) => {
+    setPosts(prevPosts => 
+      prevPosts.map(post => ({
+        ...post,
+        scheduledFor: post.scheduledFor ? 
+          getNextMonthDate(post.day.toString(), newTime) : 
+          undefined
+      }))
+    )
+  }
+
+  const updatePostTime = (postId: string, newTime: string) => {
+    setPosts(prevPosts => 
+      prevPosts.map(post => 
+        post.id === postId 
+          ? { ...post, scheduledFor: getNextMonthDate(post.day.toString(), newTime) }
+          : post
+      )
+    )
   }
 
   const fetchMedia = async () => {
@@ -407,7 +474,8 @@ export default function MonthlyPage() {
     setEditingPost(postId)
     setEditCaption(caption)
     setEditHashtags(hashtags.join(' '))
-    setEditScheduledFor(scheduledFor ? new Date(scheduledFor).toISOString().slice(0, 16) : '')
+    // Always set the current scheduled time, even if it's undefined (will use post's current time)
+    setEditScheduledFor(scheduledFor ? new Date(scheduledFor).toISOString().slice(0, 16) : null)
   }
 
   const saveEdit = (postId: string) => {
@@ -436,18 +504,6 @@ export default function MonthlyPage() {
     setEditScheduledFor(null)
   }
 
-  // Helper to get the next 7 real calendar days (local time)
-  function formatScheduledDate(date: Date): string {
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const day = dayNames[date.getDay()];
-    const month = monthNames[date.getMonth()];
-    const dayNum = date.getDate();
-    const year = date.getFullYear();
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    return `${day}, ${month} ${dayNum}, ${year} at ${hours}:${minutes}`;
-  }
 
   const handleEnhanceImage = async (postId: string, imageUrl: string, caption: string, imageIndex: number) => {
     setEnhancingImage(prev => ({ 
@@ -480,6 +536,12 @@ export default function MonthlyPage() {
         imageFile = new File([blob], 'image.jpg', { type: blob.type })
       }
 
+      // Get user for authorization
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
       // Create FormData and send file directly
       const formData = new FormData()
       formData.append('image', imageFile)
@@ -487,6 +549,9 @@ export default function MonthlyPage() {
 
       const response = await fetch('/api/enhance-image', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.id}`
+        },
         body: formData
       })
 
@@ -512,6 +577,13 @@ export default function MonthlyPage() {
       }))
       
       console.log('Image enhanced successfully:', data.enhancedImageUrl)
+      
+      // Show success message with remaining credits
+      if (data.creditsRemaining !== undefined) {
+        setSuccess(`Image enhanced successfully! ${data.creditsRemaining} enhancement credits remaining.`)
+        // Clear success message after 3 seconds
+        setTimeout(() => setSuccess(''), 3000)
+      }
     } catch (error: any) {
       console.error('Error enhancing image:', error)
       setError(error.message || 'Failed to enhance image')
@@ -546,22 +618,7 @@ export default function MonthlyPage() {
     })
   }
 
-  function getUpcomingWeekDays() {
-    const days: { day: string; date: string; dateObj: Date }[] = [];
-    const today = new Date();
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      const dayName = dayNames[d.getDay()];
-      const dateStr = `${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-      days.push({ day: dayName, date: dateStr, dateObj: d });
-    }
-    return days;
-  }
-  const upcomingWeekDays = getUpcomingWeekDays();
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -601,21 +658,33 @@ export default function MonthlyPage() {
         {!contentGenerated && (
           <div className="bg-white rounded-lg shadow-sm border p-4 sm:p-6 mb-6 sm:mb-8">
             <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Add Images for Each Day (Optional, up to 10 per day)</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 sm:gap-4">
-              {upcomingWeekDays.map(({ day, date }) => (
-                <div key={day + date} className="flex flex-col items-center">
-                  <span className="font-medium text-gray-700 mb-1">{day}</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-10 gap-2 sm:gap-4">
+              {next30Days.map(({ day, date }) => {
+                // Use EXACT same key format as weekly page: "Wednesday 27 Aug 2025" (with spaces)
+                const dayKey = day + ' ' + date
+                return (
+                <div key={dayKey} className="flex flex-col items-center">
+                  <span className="font-medium text-gray-700 mb-1 text-xs">{day}</span>
                   <span className="text-xs text-gray-500 mb-2">{date}</span>
-                  {imageSelections[day + date] && imageSelections[day + date].length > 0 ? (
+                  {imageSelections[dayKey] && imageSelections[dayKey].length > 0 ? (
                     <div className="relative group image-selected flex flex-wrap gap-1 justify-center">
-                      {imageSelections[day + date].map((img, idx) => (
+                      {imageSelections[dayKey].map((img, idx) => (
                         <div key={img.id} className="relative">
-                          <img src={img.file_path} alt={day} className="w-12 h-12 object-cover rounded shadow mb-1" />
+                          {img.mime_type && img.mime_type.startsWith('video/') ? (
+                            <video
+                              src={img.file_path}
+                              className="w-12 h-12 object-cover rounded shadow mb-1"
+                              muted
+                              playsInline
+                            />
+                          ) : (
+                            <img src={img.file_path} alt={day} className="w-12 h-12 object-cover rounded shadow mb-1" />
+                          )}
                     <button
                             className="absolute top-0 right-0 bg-white bg-opacity-80 rounded-full p-0.5 text-red-500 hover:text-red-700 text-xs"
                             onClick={() => setImageSelections((prev) => ({
                               ...prev,
-                              [day + date]: prev[day + date].filter((_, i) => i !== idx)
+                              [dayKey]: prev[dayKey].filter((_, i) => i !== idx)
                             }))}
                             aria-label="Remove image"
                           >
@@ -623,18 +692,18 @@ export default function MonthlyPage() {
                           </button>
                         </div>
                       ))}
-                      {imageSelections[day + date].length < 10 && (
+                      {imageSelections[dayKey].length < 10 && (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setMediaModalDay(day + date)}
+                          onClick={() => setMediaModalDay(dayKey)}
                           className="w-12 h-12 flex items-center justify-center"
                     >
                           <ImageIcon className="h-4 w-4" />
                           <span className="sr-only">Add Image</span>
                         </Button>
                       )}
-                      {imageSelections[day + date].length > 1 && (
+                      {imageSelections[dayKey].length > 1 && (
                         <span className="absolute bottom-0 left-0 bg-blue-600 text-white text-xs px-1 rounded">Carousel</span>
                       )}
                     </div>
@@ -642,24 +711,24 @@ export default function MonthlyPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setMediaModalDay(day + date)}
+                      onClick={() => setMediaModalDay(dayKey)}
                     >
                       <ImageIcon className="h-4 w-4 mr-1" />Select Image
                     </Button>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
             <div className="mt-6 sm:mt-8 flex gap-2 sm:gap-3 justify-center">
               <Button
-                onClick={generateWeeklyContent}
+                onClick={generateMonthlyContent}
                 disabled={Object.values(imageSelections).flat().length === 0}
                 loading={generating}
                 variant="primary"
                 className="btn-generate"
               >
                 <Sparkles className="h-4 w-4 mr-2" />
-                {generating ? 'Generating Content...' : 'Generate Weekly Content'}
+                {generating ? 'Generating Content...' : 'Generate Monthly Content'}
               </Button>
             </div>
             <div className="mt-3 text-sm text-gray-600 text-center">
@@ -702,7 +771,16 @@ export default function MonthlyPage() {
                   <div className="flex flex-wrap gap-2">
                     {modalSelectedImages.map((img, idx) => (
                       <div key={img.id} className="relative">
-                        <img src={img.file_path} alt={img.file_name} className="w-12 h-12 object-cover rounded" />
+                        {img.mime_type && img.mime_type.startsWith('video/') ? (
+                          <video
+                            src={img.file_path}
+                            className="w-12 h-12 object-cover rounded"
+                            muted
+                            playsInline
+                          />
+                        ) : (
+                          <img src={img.file_path} alt={img.file_name} className="w-12 h-12 object-cover rounded" />
+                        )}
                         <button
                           onClick={() => setModalSelectedImages(prev => prev.filter((_, i) => i !== idx))}
                           className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
@@ -721,12 +799,12 @@ export default function MonthlyPage() {
                 <div className="text-red-500">{mediaError}</div>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 max-h-96 overflow-y-auto">
-                  {Array.isArray(media) && media.filter(m => m && m.mime_type && m.mime_type.startsWith('image/')).map((item) => {
+                  {Array.isArray(media) && media.filter(m => m && m.mime_type && (m.mime_type.startsWith('image/') || m.mime_type.startsWith('video/'))).map((item) => {
                     const isSelected = modalSelectedImages.some(img => img.id === item.id)
                     return (
                       <button
                         key={item.id}
-                        className={`focus:outline-none border-2 rounded overflow-hidden transition-all ${
+                        className={`focus:outline-none border-2 rounded overflow-hidden transition-all relative ${
                           isSelected 
                             ? 'border-blue-500 bg-blue-50' 
                             : 'border-transparent hover:border-blue-300'
@@ -739,7 +817,15 @@ export default function MonthlyPage() {
                           }
                         }}
                       >
-                        <img src={item.file_path} alt={item.file_name} className="w-full h-20 object-cover" />
+                        {item.mime_type && item.mime_type.startsWith('video/') ? (
+                          <video
+                            src={item.file_path}
+                            className="w-full h-20 object-cover"
+                            muted
+                          />
+                        ) : (
+                          <img src={item.file_path} alt={item.file_name} className="w-full h-20 object-cover" />
+                        )}
                         {isSelected && (
                           <div className="absolute top-1 right-1 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">
                             ✓
@@ -748,8 +834,8 @@ export default function MonthlyPage() {
                       </button>
                     )
                   })}
-                  {(!Array.isArray(media) || (Array.isArray(media) && media.filter(m => m && m.mime_type && m.mime_type.startsWith('image/')).length === 0)) && (
-                    <div className="col-span-full text-gray-500">No images found in your media library.</div>
+                  {(!Array.isArray(media) || (Array.isArray(media) && media.filter(m => m && m.mime_type && (m.mime_type.startsWith('image/') || m.mime_type.startsWith('video/'))).length === 0)) && (
+                    <div className="col-span-full text-gray-500">No media found in your media library.</div>
                   )}
                 </div>
               )}
@@ -783,28 +869,42 @@ export default function MonthlyPage() {
             </div>
           </div>
         )}
-        {/* Weekly Content Preview */}
+        {/* Monthly Content Preview */}
         <div className="bg-white rounded-lg shadow-sm border p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-medium text-gray-900">Weekly Content Preview</h2>
+            <h2 className="text-lg font-medium text-gray-900">Monthly Content Preview</h2>
             {posts.some(p => p.status === 'generated') && (
-              <div className="flex gap-3">
-              <Button
-                onClick={saveWeeklyContent}
-                  loading={loading}
-                  variant="outline"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Save as Draft
-                </Button>
-                <Button
-                  onClick={scheduleWeeklyContent}
-                loading={loading}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Schedule Posts
-              </Button>
+              <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Default Time:</label>
+                  <input
+                    type="time"
+                    value={defaultTime}
+                    onChange={(e) => {
+                      setDefaultTime(e.target.value)
+                      updateAllPostTimes(e.target.value)
+                    }}
+                    className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    onClick={saveMonthlyContent}
+                    loading={loading}
+                    variant="outline"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Save as Draft
+                  </Button>
+                  <Button
+                    onClick={scheduleMonthlyContent}
+                    loading={loading}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Schedule Posts
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -813,7 +913,7 @@ export default function MonthlyPage() {
               <div className="flex items-center space-x-3">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                 <div>
-                  <p className="text-sm font-medium text-blue-900">Generating weekly content...</p>
+                  <p className="text-sm font-medium text-blue-900">Generating monthly content...</p>
                   <p className="text-xs text-blue-700">This may take a few moments. Please wait.</p>
                 </div>
               </div>
@@ -828,7 +928,7 @@ export default function MonthlyPage() {
                     {/* Day and Date - Centered */}
                     <div className="text-center mb-6">
                       <h4 className="font-semibold text-gray-900 text-lg">
-                        Day {post.day} - {post.scheduledFor ? formatScheduledDate(new Date(post.scheduledFor)) : 'Not scheduled'}
+                        {post.scheduledFor ? formatDateTime(post.scheduledFor) : 'Not scheduled'}
                       </h4>
                     </div>
                     
@@ -841,11 +941,20 @@ export default function MonthlyPage() {
                             {post.selectedImages.map((img, idx) => (
                               <div key={img.id || idx} className="relative">
                                 <div className="w-64 h-80 bg-gray-100 border border-gray-200 rounded-lg overflow-hidden">
-                                  <img
-                                    src={showEnhancedImages[post.id]?.[idx] && enhancedImages[post.id]?.[idx] ? enhancedImages[post.id][idx] : img.file_path}
-                                    alt={`Preview ${idx + 1}`}
-                                    className="w-full h-full object-cover"
-                                  />
+                                  {img.mime_type && img.mime_type.startsWith('video/') ? (
+                                    <video
+                                      src={showEnhancedImages[post.id]?.[idx] && enhancedImages[post.id]?.[idx] ? enhancedImages[post.id][idx] : img.file_path}
+                                      className="w-full h-full object-cover"
+                                      controls
+                                      muted
+                                    />
+                                  ) : (
+                                    <img
+                                      src={showEnhancedImages[post.id]?.[idx] && enhancedImages[post.id]?.[idx] ? enhancedImages[post.id][idx] : img.file_path}
+                                      alt={`Preview ${idx + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  )}
                                   {/* Enhancement Button */}
                                   <div className="absolute top-2 left-2">
                                     {!showEnhancedImages[post.id]?.[idx] ? (
@@ -875,11 +984,20 @@ export default function MonthlyPage() {
                         <div className="flex justify-center">
                           <div className="relative">
                             <div className="w-64 h-80 bg-gray-100 border border-gray-200 rounded-lg overflow-hidden">
-                              <img
-                                src={showEnhancedImages[post.id]?.[0] && enhancedImages[post.id]?.[0] ? enhancedImages[post.id][0] : post.selectedImage.file_path}
-                                alt="Selected"
-                                className="w-full h-full object-cover"
-                              />
+                              {post.selectedImage.mime_type && post.selectedImage.mime_type.startsWith('video/') ? (
+                                <video
+                                  src={showEnhancedImages[post.id]?.[0] && enhancedImages[post.id]?.[0] ? enhancedImages[post.id][0] : post.selectedImage.file_path}
+                                  className="w-full h-full object-cover"
+                                  controls
+                                  muted
+                                />
+                              ) : (
+                                <img
+                                  src={showEnhancedImages[post.id]?.[0] && enhancedImages[post.id]?.[0] ? enhancedImages[post.id][0] : post.selectedImage.file_path}
+                                  alt="Selected"
+                                  className="w-full h-full object-cover"
+                                />
+                              )}
                               {/* Enhancement Button */}
                               <div className="absolute top-2 left-2">
                                 {!showEnhancedImages[post.id]?.[0] ? (
@@ -941,17 +1059,45 @@ export default function MonthlyPage() {
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Scheduled For</label>
                         {editingPost !== post.id && (
-                          <button onClick={() => startEditing(post.id, post.caption, post.hashtags, post.scheduledFor)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => startEditing(post.id, post.caption, post.hashtags, post.scheduledFor)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                            {post.scheduledFor && (
+                              <button 
+                                onClick={() => setEditingTime(post.id)}
+                                className="text-xs text-green-600 hover:text-green-800"
+                              >
+                                Quick Time
+                              </button>
+                            )}
+                          </div>
                         )}
                         {editingPost === post.id ? (
                           <input
                             type="datetime-local"
-                            value={editScheduledFor ? editScheduledFor : (post.scheduledFor ? new Date(post.scheduledFor).toISOString().slice(0, 16) : '')}
+                            value={editScheduledFor || (post.scheduledFor ? new Date(post.scheduledFor).toISOString().slice(0, 16) : getNextMonthDate(post.day.toString(), defaultTime).slice(0, 16))}
                             onChange={e => setEditScheduledFor(e.target.value)}
                             className="w-full p-2 border border-gray-300 rounded mb-2 text-xs"
                           />
+                        ) : editingTime === post.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="time"
+                              value={post.scheduledFor ? new Date(post.scheduledFor).toLocaleTimeString('en-GB', { hour12: false }) : defaultTime}
+                              onChange={(e) => {
+                                updatePostTime(post.id, e.target.value)
+                                setEditingTime(null)
+                              }}
+                              className="px-2 py-1 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                            <button 
+                              onClick={() => setEditingTime(null)}
+                              className="text-xs text-gray-500 hover:text-gray-700"
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         ) : (
-                          <p className="text-sm text-gray-900">{post.scheduledFor ? formatScheduledDate(new Date(post.scheduledFor)) : 'Not scheduled'}</p>
+                          <p className="text-sm text-gray-900">{post.scheduledFor ? formatDateTime(post.scheduledFor) : 'Not scheduled'}</p>
                         )}
                       </div>
                     </div>

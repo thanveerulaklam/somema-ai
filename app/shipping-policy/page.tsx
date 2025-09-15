@@ -26,7 +26,7 @@ export default function ShippingPolicy() {
             
             <h2 className="text-xl font-semibold text-gray-900 mt-8 mb-4">Digital Service Delivery</h2>
             <p className="text-gray-700 mb-4">
-              Somema AI is a digital service platform that provides social media management tools 
+              Quely.ai is a digital service platform that provides social media management tools 
               and AI-powered content generation. As such, we do not ship physical products. All 
               our services are delivered digitally through our web platform.
             </p>
@@ -110,9 +110,9 @@ export default function ShippingPolicy() {
               If you have any questions about our digital service delivery, please contact us at:
             </p>
             <ul className="list-none pl-6 text-gray-700 mb-4">
-              <li><strong>Email:</strong> support@somema.ai</li>
-              <li><strong>Technical Support:</strong> tech@somema.ai</li>
-              <li><strong>Website:</strong> https://somema.ai</li>
+              <li><strong>Email:</strong> info@mzonetechnologies.com</li>
+              <li><strong>Technical Support:</strong> info@mzonetechnologies.com</li>
+              <li><strong>Website:</strong> https://quely.ai</li>
             </ul>
           </div>
         </div>

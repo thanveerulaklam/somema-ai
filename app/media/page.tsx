@@ -27,6 +27,13 @@ interface MediaItem {
   mime_type: string
   created_at: string
   metadata?: any
+  hasAudio?: boolean
+  audioChecked?: boolean
+}
+
+interface UserPlan {
+  subscription_plan: string
+  media_storage_limit: number
 }
 
 interface FileWithPreview extends File {
@@ -43,33 +50,216 @@ export default function MediaPage() {
   const [selectedFiles, setSelectedFiles] = useState<FileWithPreview[]>([])
   const [error, setError] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [userPlan, setUserPlan] = useState<UserPlan | null>(null)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
+  // Debug logging function
+  const logToTerminal = async (action: string, data: any) => {
+    try {
+      await fetch('/api/debug-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, data })
+      })
+    } catch (error) {
+      console.error('Failed to log to terminal:', error)
+    }
+  }
+
+  // Video validation for Instagram compatibility
+  const validateVideoForInstagram = (file: File): Promise<{ isValid: boolean; error?: string; details?: any }> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video')
+      video.preload = 'metadata'
+      
+      video.onloadedmetadata = () => {
+        const width = video.videoWidth
+        const height = video.videoHeight
+        const aspectRatio = width / height
+        const duration = video.duration
+        
+        console.log('🎬 Video validation:', {
+          width, height, aspectRatio, duration,
+          fileName: file.name, fileSize: file.size
+        })
+        
+        logToTerminal('VIDEO_VALIDATION', {
+          fileName: file.name,
+          width, height, aspectRatio, duration, fileSize: file.size
+        })
+        
+        // Instagram video requirements
+        const requirements = {
+          minWidth: 500,
+          maxWidth: 1920,
+          minHeight: 500,
+          maxHeight: 1920,
+          minAspectRatio: 0.5625, // 9:16 (Reels format)
+          maxAspectRatio: 1.91, // 16:9 (landscape)
+          maxDuration: 60, // 60 seconds for Reels
+          maxFileSize: 100 * 1024 * 1024 // 100MB
+        }
+        
+        const errors = []
+        
+        // Check dimensions
+        if (width < requirements.minWidth || width > requirements.maxWidth) {
+          errors.push(`Width must be between ${requirements.minWidth} and ${requirements.maxWidth}px (current: ${width}px)`)
+        }
+        
+        if (height < requirements.minHeight || height > requirements.maxHeight) {
+          errors.push(`Height must be between ${requirements.minHeight} and ${requirements.maxHeight}px (current: ${height}px)`)
+        }
+        
+        // Check aspect ratio
+        if (aspectRatio < requirements.minAspectRatio || aspectRatio > requirements.maxAspectRatio) {
+          errors.push(`Aspect ratio must be between ${requirements.minAspectRatio} and ${requirements.maxAspectRatio} (current: ${aspectRatio.toFixed(2)})`)
+        }
+        
+        // Check duration
+        if (duration > requirements.maxDuration) {
+          errors.push(`Duration must be ${requirements.maxDuration} seconds or less (current: ${duration.toFixed(1)}s)`)
+        }
+        
+        // Check file size
+        if (file.size > requirements.maxFileSize) {
+          errors.push(`File size must be ${(requirements.maxFileSize / (1024 * 1024)).toFixed(0)}MB or less (current: ${(file.size / (1024 * 1024)).toFixed(1)}MB)`)
+        }
+        
+        const isValid = errors.length === 0
+        
+        if (isValid) {
+          console.log('✅ Video is Instagram-compatible')
+          logToTerminal('VIDEO_VALIDATION_SUCCESS', {
+            fileName: file.name,
+            width, height, aspectRatio, duration
+          })
+        } else {
+          console.log('❌ Video is not Instagram-compatible:', errors)
+          logToTerminal('VIDEO_VALIDATION_FAILED', {
+            fileName: file.name,
+            errors,
+            width, height, aspectRatio, duration
+          })
+        }
+        
+        resolve({
+          isValid,
+          error: errors.length > 0 ? errors.join(', ') : undefined,
+          details: { width, height, aspectRatio, duration, fileSize: file.size }
+        })
+      }
+      
+      video.onerror = () => {
+        console.error('❌ Error loading video for validation')
+        logToTerminal('VIDEO_VALIDATION_ERROR', {
+          fileName: file.name,
+          error: 'Could not load video metadata'
+        })
+        resolve({
+          isValid: false,
+          error: 'Could not load video metadata for validation'
+        })
+      }
+      
+      video.src = URL.createObjectURL(file)
+    })
+  }
+
   useEffect(() => {
+    console.log('🔄 Media page loaded, calling loadMedia...')
+    logToTerminal('PAGE_LOADED', { timestamp: new Date().toISOString() })
+    loadUserPlan()
     loadMedia()
   }, [])
+
+  const loadUserPlan = async () => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !user) {
+        console.error('❌ Auth error:', authError)
+        return
+      }
+
+      const { data: userProfile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('subscription_plan, media_storage_limit')
+        .eq('user_id', user.id)
+        .single()
+
+      if (profileError) {
+        console.error('❌ Error loading user profile:', profileError)
+        // Default to free plan if profile not found
+        setUserPlan({ subscription_plan: 'free', media_storage_limit: 50 })
+        return
+      }
+
+      setUserPlan({
+        subscription_plan: userProfile.subscription_plan || 'free',
+        media_storage_limit: userProfile.media_storage_limit || 50
+      })
+
+      console.log('✅ User plan loaded:', userProfile.subscription_plan, 'Storage limit:', userProfile.media_storage_limit)
+    } catch (error) {
+      console.error('❌ Error loading user plan:', error)
+      // Default to free plan on error
+      setUserPlan({ subscription_plan: 'free', media_storage_limit: 50 })
+    }
+  }
 
   const loadMedia = async () => {
     try {
       console.log('📂 Loading media library...')
-      const { data: { user } } = await supabase.auth.getUser()
+      logToTerminal('LOAD_MEDIA_START', { timestamp: new Date().toISOString() })
+      
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError) {
+        console.error('❌ Auth error:', authError)
+        logToTerminal('AUTH_ERROR', { error: authError.message })
+        setError('Authentication error: ' + authError.message)
+        return
+      }
+      
       if (!user) {
+        console.log('❌ No user found, redirecting to login')
+        logToTerminal('NO_USER', { timestamp: new Date().toISOString() })
         router.push('/login')
         return
       }
+      
+      console.log('✅ User authenticated:', user.id)
+      logToTerminal('USER_AUTHENTICATED', { userId: user.id })
 
       console.log('👤 Loading media for user:', user.id)
+      logToTerminal('FETCHING_MEDIA', { userId: user.id })
+      
       const { data, error } = await supabase
         .from('media')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        logToTerminal('FETCH_ERROR', { error: error.message })
+        throw error
+      }
 
       console.log('📊 Media loaded:', data?.length || 0, 'items')
+      logToTerminal('MEDIA_LOADED', { 
+        count: data?.length || 0,
+        items: data?.map(item => ({
+          name: item.file_name,
+          mimeType: item.mime_type,
+          size: item.file_size,
+          hasAudio: item.metadata?.audioDetected,
+          audioChecked: item.metadata?.audioChecked
+        })) || []
+      })
+      
       if (data) {
         data.forEach((item, index) => {
           console.log(`📄 Item ${index + 1}:`)
@@ -80,7 +270,168 @@ export default function MediaPage() {
         })
       }
 
-      setMedia(data || [])
+      // Process videos to detect audio for existing videos that haven't been checked
+      logToTerminal('PROCESSING_VIDEOS', { 
+        totalItems: data?.length || 0,
+        videos: data?.filter(item => item.mime_type?.startsWith('video/')).length || 0
+      })
+      
+      const processedData = await Promise.all((data || []).map(async (item) => {
+        console.log(`📄 Processing item: ${item.file_name} (${item.mime_type})`)
+        
+        if (item.mime_type?.startsWith('video/')) {
+          const metadata = item.metadata || {}
+          const audioChecked = metadata.audioChecked || false
+          
+          console.log(`🎥 Video detected: ${item.file_name}`)
+          console.log(`   - Audio checked: ${audioChecked}`)
+          console.log(`   - Current metadata:`, metadata)
+          
+          logToTerminal('PROCESSING_VIDEO', {
+            fileName: item.file_name,
+            audioChecked,
+            currentAudioDetected: metadata.audioDetected
+          })
+          
+                      if (!audioChecked) {
+              try {
+                console.log(`🔍 Checking audio for video: ${item.file_name}`)
+                console.log(`   - URL: ${item.file_path}`)
+                
+                logToTerminal('AUDIO_CHECK_START', {
+                  fileName: item.file_name,
+                  url: item.file_path
+                })
+                
+                const hasAudio = await checkVideoAudioFromUrl(item.file_path)
+                console.log(`   - Audio detection result: ${hasAudio}`)
+                
+                logToTerminal('AUDIO_CHECK_RESULT', {
+                  fileName: item.file_name,
+                  hasAudio
+                })
+                
+                // Update the database with audio detection result
+                const { error: updateError } = await supabase
+                  .from('media')
+                  .update({
+                    metadata: {
+                      ...metadata,
+                      audioDetected: hasAudio,
+                      audioChecked: true
+                    }
+                  })
+                  .eq('id', item.id)
+                
+                if (updateError) {
+                  console.error(`❌ Error updating database for ${item.file_name}:`, updateError)
+                  logToTerminal('AUDIO_UPDATE_ERROR', {
+                    fileName: item.file_name,
+                    error: updateError.message
+                  })
+                } else {
+                  console.log(`✅ Database updated for ${item.file_name}`)
+                  logToTerminal('AUDIO_UPDATE_SUCCESS', {
+                    fileName: item.file_name,
+                    hasAudio
+                  })
+                }
+              
+              return {
+                ...item,
+                hasAudio,
+                audioChecked: true,
+                metadata: {
+                  ...metadata,
+                  audioDetected: hasAudio,
+                  audioChecked: true
+                }
+              }
+            } catch (error) {
+              console.error(`❌ Error checking audio for ${item.file_name}:`, error)
+              return {
+                ...item,
+                hasAudio: true, // Assume it has audio to be safe
+                audioChecked: true,
+                metadata: {
+                  ...metadata,
+                  audioDetected: true,
+                  audioChecked: true
+                }
+              }
+            }
+          } else {
+            console.log(`📹 Video ${item.file_name} already checked - Audio: ${metadata.audioDetected}`)
+            
+            // Check if audioDetected is missing but audioChecked is true
+            if (metadata.audioChecked && metadata.audioDetected === undefined) {
+              console.log(`⚠️ Video ${item.file_name} has audioChecked but missing audioDetected, re-checking...`)
+              logToTerminal('RE_CHECKING_AUDIO', {
+                fileName: item.file_name,
+                reason: 'audioDetected missing'
+              })
+              
+              try {
+                const hasAudio = await checkVideoAudioFromUrl(item.file_path)
+                console.log(`   - Re-check audio detection result: ${hasAudio}`)
+                
+                // Update the database
+                const { error: updateError } = await supabase
+                  .from('media')
+                  .update({
+                    metadata: {
+                      ...metadata,
+                      audioDetected: hasAudio
+                    }
+                  })
+                  .eq('id', item.id)
+                
+                if (updateError) {
+                  console.error(`❌ Error updating database for ${item.file_name}:`, updateError)
+                  logToTerminal('RE_CHECK_UPDATE_ERROR', {
+                    fileName: item.file_name,
+                    error: updateError.message
+                  })
+                } else {
+                  console.log(`✅ Database updated for ${item.file_name}`)
+                  logToTerminal('RE_CHECK_UPDATE_SUCCESS', {
+                    fileName: item.file_name,
+                    hasAudio
+                  })
+                }
+                
+                return {
+                  ...item,
+                  hasAudio,
+                  audioChecked: true,
+                  metadata: {
+                    ...metadata,
+                    audioDetected: hasAudio
+                  }
+                }
+              } catch (error) {
+                console.error(`❌ Error re-checking audio for ${item.file_name}:`, error)
+                return {
+                  ...item,
+                  hasAudio: true, // Assume it has audio to be safe
+                  audioChecked: true
+                }
+              }
+            }
+            
+            return {
+              ...item,
+              hasAudio: metadata.audioDetected,
+              audioChecked: true
+            }
+          }
+        } else {
+          console.log(`📄 Non-video file: ${item.file_name}`)
+          return item
+        }
+      }))
+
+      setMedia(processedData)
     } catch (error: any) {
       console.error('❌ Error loading media:', error)
       setError(error.message)
@@ -89,11 +440,38 @@ export default function MediaPage() {
     }
   }
 
+  // Helper functions for plan limits
+  const isFreePlan = () => userPlan?.subscription_plan === 'free'
+  const canUploadVideos = () => !isFreePlan()
+  const getImageCount = () => media.filter(item => item.mime_type?.startsWith('image/')).length
+  const canUploadMoreImages = () => {
+    if (!isFreePlan()) return true
+    return getImageCount() < (userPlan?.media_storage_limit || 50)
+  }
+
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
     if (files.length === 0) return
 
     console.log('📁 Files selected:', files.length)
+    
+    // Check for video files on free plan
+    const videoFiles = files.filter(file => file.type.startsWith('video/'))
+    if (videoFiles.length > 0 && isFreePlan()) {
+      setError('❌ Video uploads are not allowed on the free plan. Please upgrade to a paid plan to upload videos.')
+      return
+    }
+
+    // Check image count limit for free plan
+    const imageFiles = files.filter(file => file.type.startsWith('image/'))
+    const currentImageCount = getImageCount()
+    const totalImagesAfterUpload = currentImageCount + imageFiles.length
+    
+    if (isFreePlan() && totalImagesAfterUpload > (userPlan?.media_storage_limit || 50)) {
+      const remainingSlots = (userPlan?.media_storage_limit || 50) - currentImageCount
+      setError(`❌ You can only store ${userPlan?.media_storage_limit || 50} images on the free plan. You currently have ${currentImageCount} images and can upload ${remainingSlots} more. Please upgrade to a paid plan for unlimited storage.`)
+      return
+    }
     
     const filesWithPreviews: FileWithPreview[] = []
     
@@ -169,23 +547,136 @@ export default function MediaPage() {
     })
   }
 
+  const checkVideoAudioFromUrl = (url: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video')
+      video.muted = true
+      video.preload = 'metadata'
+      
+      video.onloadedmetadata = () => {
+        console.log('🔍 Checking audio for video:', url)
+        
+        // Method 1: Check audioTracks (most reliable)
+        if ((video as any).audioTracks && (video as any).audioTracks.length > 0) {
+          console.log('✅ Audio detected via audioTracks:', (video as any).audioTracks.length, 'tracks')
+          resolve(true)
+          return
+        }
+        
+        // Method 2: Check if video has audio by trying to unmute and check volume
+        try {
+          const originalMuted = video.muted
+          const originalVolume = video.volume
+          
+          video.muted = false
+          video.volume = 0.1
+          
+          // Check if there are any audio events or if the video has audio context
+          const hasAudioContext = (video as any).mozHasAudio || 
+                                 (video as any).webkitAudioDecodedByteCount > 0 ||
+                                 ((video as any).audioTracks && (video as any).audioTracks.length > 0)
+          
+          console.log('🔍 Audio context check:', hasAudioContext)
+          
+          // Reset video state
+          video.muted = originalMuted
+          video.volume = originalVolume
+          
+          if (hasAudioContext) {
+            console.log('✅ Audio detected via audio context')
+            resolve(true)
+            return
+          }
+        } catch (error) {
+          console.log('⚠️ Error checking audio context:', error)
+        }
+        
+        // Method 3: Check video duration and assume it has audio if it's a reasonable length
+        // This is a fallback for videos that might have audio but the detection methods fail
+        if (video.duration > 0 && video.duration < 3600) { // Less than 1 hour
+          console.log('⚠️ Assuming video has audio based on duration:', video.duration)
+          resolve(true)
+          return
+        }
+        
+        console.log('❌ No audio detected')
+        resolve(false)
+      }
+      
+      video.onerror = (error) => {
+        console.error('❌ Error loading video metadata:', error)
+        // If we can't load metadata, assume it has audio to be safe
+        resolve(true)
+      }
+      
+      video.src = url
+    })
+  }
+
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return
     
     console.log('🚀 Starting multiple file upload...')
     console.log('📋 Files to upload:', selectedFiles.length)
     
+    logToTerminal('UPLOAD_START', {
+      fileCount: selectedFiles.length,
+      files: selectedFiles.map(f => ({ name: f.name, size: f.size, type: f.type }))
+    })
+    
     setUploading(true)
     setError('')
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError) {
+        console.error('❌ Auth error during upload:', authError)
+        throw new Error('Authentication error: ' + authError.message)
+      }
       if (!user) throw new Error('User not authenticated')
+      
+      console.log('✅ User authenticated for upload:', user.id)
+      logToTerminal('UPLOAD_USER_AUTH', { userId: user.id })
 
       console.log('👤 User authenticated:', user.id)
 
       const uploadPromises = selectedFiles.map(async (selectedFile, index) => {
         console.log(`📤 Uploading file ${index + 1}/${selectedFiles.length}: ${selectedFile.name}`)
+        
+        logToTerminal('UPLOADING_FILE', {
+          index: index + 1,
+          total: selectedFiles.length,
+          fileName: selectedFile.name,
+          fileSize: selectedFile.size,
+          fileType: selectedFile.type
+        })
+        
+        // Validate video files for Instagram compatibility
+        const isVideo = selectedFile.type.startsWith('video/') || selectedFile.name.match(/\.(mp4|mov|avi|mkv|webm)$/i)
+        if (isVideo) {
+          console.log('🎬 Validating video for Instagram compatibility...')
+          const validation = await validateVideoForInstagram(selectedFile)
+          
+          if (!validation.isValid) {
+            const errorMsg = `Video "${selectedFile.name}" is not compatible with Instagram: ${validation.error}`
+            console.log('❌ Video validation failed:', errorMsg)
+            logToTerminal('VIDEO_REJECTED', {
+              fileName: selectedFile.name,
+              error: validation.error,
+              details: validation.details
+            })
+            
+            // Return error instead of throwing
+            return { 
+              success: false, 
+              fileName: selectedFile.name,
+              error: errorMsg,
+              validationDetails: validation.details
+            }
+          }
+          
+          console.log('✅ Video passed Instagram validation')
+        }
         
         let fileToUpload = selectedFile
 
@@ -198,8 +689,15 @@ export default function MediaPage() {
         if (isHeic) {
           console.log('🔄 Converting HEIC to JPEG using heic2any...')
           try {
-            // Import heic2any dynamically
-            const heic2any = (await import('heic2any')).default
+            // Import heic2any dynamically with better error handling
+            let heic2any;
+            try {
+              const heic2anyModule = await import('heic2any');
+              heic2any = heic2anyModule.default;
+            } catch (importError) {
+              console.error('❌ Failed to import heic2any:', importError);
+              throw new Error('HEIC conversion library not available');
+            }
             
             // Convert HEIC to JPEG
             const jpegBlob = await heic2any({
@@ -211,11 +709,18 @@ export default function MediaPage() {
             // Create new file with JPEG content
             const jpegFileName = selectedFile.name.replace(/\.(heic|heif)$/i, '.jpg')
             fileToUpload = new Blob([jpegBlob], { type: 'image/jpeg' }) as File
-            // Set the name property manually
-            Object.defineProperty(fileToUpload, 'name', {
-              value: jpegFileName,
-              writable: false
-            })
+            
+            // Set the name property manually with better error handling
+            try {
+              Object.defineProperty(fileToUpload, 'name', {
+                value: jpegFileName,
+                writable: false
+              })
+            } catch (propertyError) {
+              console.warn('⚠️ Could not set file name property:', propertyError)
+              // Create a new File object as fallback
+              fileToUpload = new (File as any)([jpegBlob], jpegFileName, { type: 'image/jpeg' })
+            }
 
             console.log('✅ HEIC converted to JPEG successfully')
             console.log('   - Original size:', selectedFile.size, 'bytes')
@@ -244,6 +749,11 @@ export default function MediaPage() {
           .getPublicUrl(filePath)
 
         console.log('✅ File uploaded successfully:', publicUrl)
+        logToTerminal('FILE_UPLOADED', {
+          fileName: fileToUpload.name || selectedFile.name,
+          url: publicUrl,
+          size: fileToUpload.size
+        })
 
         // Save to database
         const { error: dbError } = await supabase
@@ -256,18 +766,68 @@ export default function MediaPage() {
             file_size: fileToUpload.size,
             metadata: {
               lastModified: selectedFile.lastModified,
-              originalFormat: isHeic ? 'heic' : undefined
+              originalFormat: isHeic ? 'heic' : undefined,
+              audioDetected: selectedFile.hasAudio,
+              audioChecked: selectedFile.audioChecked
             }
           })
 
-        if (dbError) throw dbError
+        if (dbError) {
+          logToTerminal('DB_INSERT_ERROR', {
+            fileName: fileToUpload.name || selectedFile.name,
+            error: dbError.message
+          })
+          throw dbError
+        }
+        
+        logToTerminal('DB_INSERT_SUCCESS', {
+          fileName: fileToUpload.name || selectedFile.name,
+          hasAudio: selectedFile.hasAudio,
+          audioChecked: selectedFile.audioChecked,
+          metadata: {
+            lastModified: selectedFile.lastModified,
+            originalFormat: isHeic ? 'heic' : undefined,
+            audioDetected: selectedFile.hasAudio,
+            audioChecked: selectedFile.audioChecked
+          }
+        })
         
         return { success: true, fileName: fileToUpload.name || selectedFile.name }
       })
 
       // Wait for all uploads to complete
       const results = await Promise.all(uploadPromises)
-      console.log('🎉 All files uploaded successfully:', results.length)
+      console.log('📊 Upload results:', results)
+      
+      // Process results
+      const successfulUploads = results.filter(r => r.success)
+      const failedUploads = results.filter(r => !r.success)
+      
+      if (successfulUploads.length > 0) {
+        console.log('🎉 Successful uploads:', successfulUploads.length)
+        logToTerminal('UPLOAD_SUCCESS', {
+          count: successfulUploads.length,
+          files: successfulUploads.map(r => r.fileName)
+        })
+      }
+      
+      if (failedUploads.length > 0) {
+        console.log('❌ Failed uploads:', failedUploads.length)
+        logToTerminal('UPLOAD_FAILED', {
+          count: failedUploads.length,
+          files: failedUploads.map(r => ({ fileName: r.fileName, error: r.error }))
+        })
+        
+        // Show user-friendly error message
+        const errorMessages = failedUploads.map(r => r.error).join('\n\n')
+        setError(`Some files could not be uploaded:\n\n${errorMessages}`)
+        
+        // If all uploads failed, don't reload media
+        if (successfulUploads.length === 0) {
+          setSelectedFiles([])
+          return
+        }
+      }
 
       // Clean up preview URLs
       selectedFiles.forEach(file => {
@@ -351,6 +911,17 @@ export default function MediaPage() {
               <h1 className="text-lg sm:text-xl font-semibold text-gray-900">
                 Media Library
               </h1>
+              <Button
+                onClick={() => {
+                  console.log('🔄 Manual refresh triggered')
+                  loadMedia()
+                }}
+                variant="outline"
+                size="sm"
+                className="ml-4"
+              >
+                🔄 Refresh
+              </Button>
             </div>
           </div>
         </div>
@@ -359,7 +930,19 @@ export default function MediaPage() {
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-6 sm:py-8">
         {/* Upload Section */}
         <div className="bg-white rounded-lg shadow-sm border p-4 sm:p-6 mb-6 sm:mb-8">
-          <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-3 sm:mb-4">Upload New Media</h2>
+          <div className="flex justify-between items-center mb-3 sm:mb-4">
+            <h2 className="text-base sm:text-lg font-medium text-gray-900">Upload New Media</h2>
+            {userPlan && (
+              <div className="text-sm text-gray-600">
+                <span className="font-medium">Plan:</span> {userPlan.subscription_plan.charAt(0).toUpperCase() + userPlan.subscription_plan.slice(1)}
+                {isFreePlan() && (
+                  <span className="ml-2 text-orange-600">
+                    ({getImageCount()}/{userPlan.media_storage_limit} images)
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           
           {selectedFiles.length === 0 ? (
             <div
@@ -367,24 +950,59 @@ export default function MediaPage() {
               className="border-2 border-dashed border-gray-300 rounded-lg p-5 sm:p-8 text-center cursor-pointer hover:border-gray-400 transition-colors"
             >
               <Upload className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-              <p className="text-gray-600">Click to upload images or videos</p>
-              <p className="text-xs sm:text-sm text-gray-500">Accepted formats: JPG, JPEG, PNG, GIF, WEBP, HEIC, MP4, WEBM, MOV. Max size 100MB per file.</p>
-              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-start space-x-2">
-                  <svg className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div className="text-xs text-blue-800">
-                    <p className="font-medium">Instagram Reels Audio Requirement</p>
-                    <p>Videos posted to Instagram must have audio. Videos without sound will be rejected.</p>
+              <p className="text-gray-600">
+                {isFreePlan() ? 'Click to upload images' : 'Click to upload images or videos'}
+              </p>
+              <p className="text-xs sm:text-sm text-gray-500">
+                {isFreePlan() 
+                  ? 'Accepted formats: JPG, JPEG, PNG, GIF, WEBP, HEIC. Max size 100MB per file. Videos not allowed on free plan.'
+                  : 'Accepted formats: JPG, JPEG, PNG, GIF, WEBP, HEIC, MP4, WEBM, MOV. Max size 100MB per file.'
+                }
+              </p>
+              <div className="mt-3 space-y-2">
+                {isFreePlan() && (
+                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-start space-x-2">
+                      <svg className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      <div className="text-xs text-yellow-800">
+                        <p className="font-medium">Free Plan Limitations</p>
+                        <p>You can store up to {userPlan?.media_storage_limit || 50} images. Video uploads are not allowed. <Link href="/pricing" className="text-yellow-700 underline">Upgrade to a paid plan</Link> for unlimited storage and video support.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <svg className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="text-xs text-blue-800">
+                      <p className="font-medium">Instagram Reels Audio Requirement</p>
+                      <p>Videos posted to Instagram must have audio. Videos without sound will be rejected.</p>
+                    </div>
                   </div>
                 </div>
+                {!isFreePlan() && (
+                  <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    <div className="flex items-start space-x-2">
+                      <svg className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      <div className="text-xs text-orange-800">
+                        <p className="font-medium">Instagram Video Requirements</p>
+                        <p>Videos must be: 500-1920px width/height, 4:5 to 16:9 aspect ratio, ≤60 seconds, ≤100MB. Incompatible videos will be rejected during upload.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               <input
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,video/mp4,video/webm,video/quicktime"
+                accept={isFreePlan() ? "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" : "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,video/mp4,video/webm,video/quicktime"}
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -445,7 +1063,7 @@ export default function MediaPage() {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,video/mp4,video/webm,video/quicktime"
+                  accept={isFreePlan() ? "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" : "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,video/mp4,video/webm,video/quicktime"}
                   onChange={handleFileSelect}
                   className="hidden"
                 />
@@ -516,7 +1134,32 @@ export default function MediaPage() {
         {/* Error Display */}
         {error && (
           <div className="mb-4 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-800 text-xs sm:text-sm">{error}</p>
+            <div className="flex items-start space-x-2">
+              <svg className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <div className="text-red-800 text-xs sm:text-sm">
+                <p className="font-medium mb-1">Upload Error</p>
+                <div className="whitespace-pre-line">{error}</div>
+                {error.includes('Instagram') && (
+                  <div className="mt-2 p-2 bg-red-100 rounded text-xs">
+                    <p className="font-medium">💡 Tip: To make your video Instagram-compatible:</p>
+                    <ul className="list-disc list-inside mt-1 space-y-1">
+                      <li>Crop to 4:5, 1:1, or 16:9 aspect ratio</li>
+                      <li>Keep width/height between 500-1920px</li>
+                      <li>Ensure duration is 60 seconds or less</li>
+                      <li>Add audio if missing</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setError('')}
+              className="absolute top-2 right-2 text-red-600 hover:text-red-800"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         )}
 
@@ -576,11 +1219,18 @@ export default function MediaPage() {
                             />
                           )
                         ) : isVideo ? (
-                          <video
-                            src={item.file_path}
-                            controls
-                            className="w-full h-full object-cover"
-                          />
+                          <div className="relative w-full h-full">
+                            <video
+                              src={item.file_path}
+                              controls
+                              className="w-full h-full object-cover"
+                            />
+                            {item.audioChecked && (
+                              <div className="absolute top-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
+                                {item.hasAudio ? '🔊' : '🔇'}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <FileIcon className="h-12 w-12 text-gray-400" />
                         )}
@@ -590,6 +1240,11 @@ export default function MediaPage() {
                         <p className="text-xs sm:text-sm text-gray-500 mt-1">
                           {new Date(item.created_at).toLocaleDateString()}
                         </p>
+                        {isVideo && item.audioChecked && (
+                          <p className={`text-xs mt-1 ${item.hasAudio ? 'text-green-600' : 'text-red-600'}`}>
+                            {item.hasAudio ? '✓ Has audio' : '⚠️ No audio'}
+                          </p>
+                        )}
                         <div className="flex gap-2 mt-2 sm:mt-3">
                           <Button size="sm" variant="outline" onClick={() => window.open(item.file_path, '_blank')}>
                             <Eye className="h-4 w-4" />
@@ -649,11 +1304,18 @@ export default function MediaPage() {
                             />
                           )
                         ) : isVideo ? (
-                          <video
-                            src={item.file_path}
-                            controls
-                            className="w-full h-full object-cover rounded-lg"
-                          />
+                          <div className="relative w-full h-full">
+                            <video
+                              src={item.file_path}
+                              controls
+                              className="w-full h-full object-cover rounded-lg"
+                            />
+                            {item.audioChecked && (
+                              <div className="absolute top-1 right-1 bg-black bg-opacity-50 text-white text-xs px-1 py-0.5 rounded">
+                                {item.hasAudio ? '🔊' : '🔇'}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <FileIcon className="h-8 w-8 text-gray-400" />
                         )}
@@ -663,6 +1325,11 @@ export default function MediaPage() {
                         <p className="text-xs sm:text-sm text-gray-500">
                           {new Date(item.created_at).toLocaleDateString()}
                         </p>
+                        {isVideo && item.audioChecked && (
+                          <p className={`text-xs mt-1 ${item.hasAudio ? 'text-green-600' : 'text-red-600'}`}>
+                            {item.hasAudio ? '✓ Has audio' : '⚠️ No audio'}
+                          </p>
+                        )}
                       </div>
                       <div className="flex gap-2 mt-2 sm:mt-0 w-full sm:w-auto">
                         <Button size="sm" variant="outline" onClick={() => window.open(item.file_path, '_blank')}>

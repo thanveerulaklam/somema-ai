@@ -30,14 +30,14 @@ Add these variables to your `.env.local` file:
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-# OpenAI API Configuration
-NEXT_PUBLIC_OPENAI_API_KEY=your_openai_api_key
+# OpenAI API Configuration (SERVER-SIDE ONLY)
+OPENAI_API_KEY=your_openai_api_key
 
-# Anthropic Claude API Configuration
-NEXT_PUBLIC_ANTHROPIC_API_KEY=your_anthropic_api_key
+# Anthropic Claude API Configuration (SERVER-SIDE ONLY)
+ANTHROPIC_API_KEY=your_anthropic_api_key
 
-# Canva API Configuration (optional)
-NEXT_PUBLIC_CANVA_API_KEY=your_canva_api_key
+# Canva API Configuration (SERVER-SIDE ONLY)
+CANVA_API_KEY=your_canva_api_key
 ```
 
 ## API Key Setup Instructions

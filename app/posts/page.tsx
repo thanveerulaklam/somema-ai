@@ -271,16 +271,25 @@ function PostsContent() {
       if (!response.ok) {
         throw new Error(data.error || 'Failed to post')
       }
-      // Update the post status in the database
-      await supabase
-        .from('posts')
-        .update({ status: 'published' })
-        .eq('id', postNowPost.id)
-        .eq('user_id', user.id)
-      setShowPostNowModal(false)
-      setPostNowPost(null)
-      // Reload posts
-      loadPosts()
+
+      // Handle the response based on success/failure
+      if (data.success) {
+        // Update the post status in the database
+        await supabase
+          .from('posts')
+          .update({ status: 'published' })
+          .eq('id', postNowPost.id)
+          .eq('user_id', user.id)
+        setShowPostNowModal(false)
+        setPostNowPost(null)
+        // Reload posts
+        loadPosts()
+        // Show success message
+        alert(data.message || 'Post published successfully!')
+      } else {
+        // Show user-friendly error message
+        throw new Error(data.message || 'Posting failed. Please try again.')
+      }
     } catch (error: any) {
       setPostNowError(error.message || 'Failed to post now')
     } finally {
@@ -309,7 +318,7 @@ function PostsContent() {
         return
       }
 
-      if (!postsToFix || !Array.isArray(postsToFix) || postsToFix.length === 0) {
+      if (!postsToFix || !Array.isArray(postsToFix) || (postsToFix && postsToFix.length === 0)) {
         alert('No posts need fixing!')
         return
       }
@@ -319,7 +328,7 @@ function PostsContent() {
         if (!post.caption) continue
 
         // Extract text elements from caption
-        const lines = Array.isArray(post.caption.split('\n')) ? post.caption.split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0) : [];
+        const lines = post.caption ? post.caption.split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0) : [];
         
         const firstLine = lines[0] || ''
         const headline = firstLine
@@ -330,7 +339,7 @@ function PostsContent() {
           .substring(0, 50) || 'Amazing Headline'
         
         let subtext = 'Compelling subtext that draws attention'
-        for (let i = 1; i < (lines ? lines.length : 0); i++) {
+        for (let i = 1; i < (lines && Array.isArray(lines) ? lines.length : 0); i++) {
           const line = lines[i]
           if (line && !line.startsWith('#') && line.length > 15 && line.length < 80) {
             subtext = line.substring(0, 60)
@@ -367,7 +376,7 @@ function PostsContent() {
         }
       }
 
-      alert(`Fixed ${fixedCount} out of ${(Array.isArray(postsToFix) ? postsToFix.length : 0)} posts!`)
+      alert(`Fixed ${fixedCount} out of ${(postsToFix && Array.isArray(postsToFix) ? postsToFix.length : 0)} posts!`)
       
       // Reload posts to show updated data
       loadPosts()
@@ -710,7 +719,22 @@ function PostsContent() {
               </div>
               {postNowError && (
                 <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-red-800 text-sm">{postNowError}</p>
+                  <p className="text-red-800 text-sm mb-2">{postNowError}</p>
+                  {postNowError.includes('Instagram posting failed') && (
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleConfirmPostNow}
+                        size="sm"
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                        disabled={postNowLoadingId !== null}
+                      >
+                        {postNowLoadingId ? 'Retrying...' : 'Retry Now'}
+                      </Button>
+                      <p className="text-xs text-red-600 mt-1">
+                        Instagram's API can be unreliable. Retrying often works!
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -775,7 +799,22 @@ function PostsContent() {
             </div>
             {postNowError && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-red-800 text-sm">{postNowError}</p>
+                <p className="text-red-800 text-sm mb-2">{postNowError}</p>
+                {postNowError.includes('Instagram posting failed') && (
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleConfirmPostNow}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                      disabled={postNowLoadingId !== null}
+                    >
+                      {postNowLoadingId ? 'Retrying...' : 'Retry Now'}
+                    </Button>
+                    <p className="text-xs text-red-600 mt-1">
+                      Instagram's API can be unreliable. Retrying often works!
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

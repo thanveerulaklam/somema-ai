@@ -3,9 +3,11 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase'
+import { getCurrentUser, handleAuthError } from '../../lib/auth-utils';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { useAnalyticsContext } from '../../components/analytics/AnalyticsProvider';
 import { 
   Calendar, 
   Image, 
@@ -96,6 +98,8 @@ function DashboardContentInner() {
   const searchParams = useSearchParams();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [generationCount, setGenerationCount] = useState<number>(0);
+  const [enhancementCredits, setEnhancementCredits] = useState<number>(0);
+  const analytics = useAnalyticsContext();
 
   useEffect(() => {
     // Check for success message in URL params
@@ -108,62 +112,113 @@ function DashboardContentInner() {
       window.history.replaceState({}, '', newUrl.toString());
     }
 
+    // Check for subscription success message
+    const subscriptionStatus = searchParams.get('subscription');
+    if (subscriptionStatus === 'success') {
+      setMessage('🎉 Subscription activated successfully! Welcome to your new plan.');
+      // Clear the parameter from URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('subscription');
+      window.history.replaceState({}, '', newUrl.toString());
+    }
+
     const getUser = async () => {
       console.log('🔍 Starting getUser function...');
-      const { data: { user } } = await supabase.auth.getUser();
-      console.log('👤 User auth result:', user ? 'User found' : 'No user');
-      
-      if (!user) {
-        console.log('❌ No user found, redirecting to login');
-        router.push('/login');
+      try {
+        const user = await getCurrentUser();
+        console.log('👤 User auth result:', user ? 'User found' : 'No user');
+        
+        if (!user) {
+          console.log('❌ No user found, redirecting to login');
+          router.push('/login');
+          return;
+        }
+        setUser(user);
+        console.log('✅ User set:', user.id);
+
+        // Get user profile
+        console.log('📋 Fetching user profile...');
+        const { data: profileData, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
+        console.log('📋 Profile result:', profileData ? 'Profile found' : 'No profile', profileError);
+
+        if (profileData) {
+          setProfile(profileData);
+          console.log('✅ Profile set:', profileData.business_name);
+          console.log('📋 Full profile data:', profileData);
+          
+          // Check if required fields are completed
+          const requiredFields = [
+            profileData.business_name,
+            profileData.industry,
+            profileData.city,
+            profileData.country
+          ];
+          
+          const hasRequiredFields = requiredFields.every(field => 
+            field && typeof field === 'string' && field.trim().length > 0
+          );
+          
+          if (!hasRequiredFields) {
+            console.log('⚠️ Required fields missing, redirecting to settings');
+            router.push('/settings?message=' + encodeURIComponent('Please complete your business profile with required information (Business Name, Industry, City, and Country)'));
+            return;
+          }
+        } else {
+          console.log('❌ No profile found, redirecting to onboarding');
+          router.push('/onboarding');
+          return;
+        }
+
+        // Get dashboard stats
+        console.log('📊 Loading dashboard stats...');
+        await loadDashboardStats(user.id);
+
+        // Get post generation credits and enhancement credits
+        console.log('🎲 Loading post generation credits and enhancement credits...');
+        const { data: userData, error: creditsError } = await supabase
+          .from('user_profiles')
+          .select('post_generation_credits, image_enhancement_credits, subscription_plan')
+          .eq('user_id', user.id)
+          .single();
+
+        if (!creditsError && userData) {
+          // Get default values based on plan
+          const plan = userData.subscription_plan || 'free'
+          const defaultCredits = getDefaultCreditsForPlan(plan)
+          
+          setGenerationCount(userData.post_generation_credits ?? defaultCredits);
+          setEnhancementCredits(userData.image_enhancement_credits ?? defaultCredits);
+          console.log('✅ Post generation credits set:', userData.post_generation_credits ?? defaultCredits);
+          console.log('✅ Enhancement credits set:', userData.image_enhancement_credits ?? defaultCredits);
+        } else {
+          console.log('⚠️ No credits found, defaulting to free plan credits');
+          const defaultCredits = getDefaultCreditsForPlan('free');
+          setGenerationCount(defaultCredits);
+          setEnhancementCredits(defaultCredits);
+        }
+
+        // Check Meta connection status
+        console.log('🔗 Checking Meta connection...');
+        await checkMetaConnection();
+
+        setLoading(false);
+        console.log('✅ Dashboard loading complete');
+      } catch (error) {
+        console.error('Error getting user:', error);
+        // handleAuthError will handle the redirect
         return;
       }
-      setUser(user);
-      console.log('✅ User set:', user.id);
-
-      // Get user profile
-      console.log('📋 Fetching user profile...');
-      const { data: profileData, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      console.log('📋 Profile result:', profileData ? 'Profile found' : 'No profile', profileError);
-
-      if (profileData) {
-        setProfile(profileData);
-        console.log('✅ Profile set:', profileData.business_name);
-      } else {
-        console.log('❌ No profile found, redirecting to onboarding');
-        router.push('/onboarding');
-        return;
-      }
-
-      // Get dashboard stats
-      console.log('📊 Loading dashboard stats...');
-      await loadDashboardStats(user.id);
-
-      // Get generation count
-      console.log('🎲 Loading generation count...');
-      const { count: genCount } = await supabase
-        .from('generation_logs')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
-
-      setGenerationCount(genCount || 0);
-      console.log('✅ Generation count set:', genCount || 0);
-
-      // Check Meta connection status
-      console.log('🔗 Checking Meta connection...');
-      await checkMetaConnection();
-
-      setLoading(false);
-      console.log('✅ Dashboard loading complete');
     };
 
     getUser();
-  }, [router, searchParams]);
+  }, [router, searchParams, searchParams.get('refresh')]);
+
+
 
   const checkMetaConnection = async () => {
     try {
@@ -293,6 +348,22 @@ function DashboardContentInner() {
     router.push('/login');
   };
 
+  // Helper function to get default credits for each plan
+  const getDefaultCreditsForPlan = (plan: string): number => {
+    switch (plan) {
+      case 'free':
+        return 3
+      case 'starter':
+        return 30
+      case 'growth':
+        return 100
+      case 'scale':
+        return 500
+      default:
+        return 3 // Default to free plan credits
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -321,7 +392,20 @@ function DashboardContentInner() {
                 variant="primary"
                 size="lg"
                 className="w-full justify-start text-base sm:text-lg py-3 sm:py-4"
-                onClick={() => { setShowCreateModal(false); router.push('/ai/generate'); }}
+                onClick={() => { 
+                  analytics.trackFeatureUsage('Single Post Creation');
+                  // Track with Meta Pixel
+                  analytics.metaPixelEvents.viewContent({
+                    content_name: 'Single Post Creation',
+                    content_category: 'Feature Usage',
+                    value: 0,
+                    currency: 'USD'
+                  });
+                  // Track with Google Ads (smart detection)
+                  analytics.trackSmartFeatureUsage('single_post_creation');
+                  setShowCreateModal(false); 
+                  router.push('/ai/generate'); 
+                }}
               >
                 <Image className="h-5 w-5 mr-2" /> Single Post
               </Button>
@@ -329,7 +413,11 @@ function DashboardContentInner() {
                 variant="secondary"
                 size="lg"
                 className="w-full justify-start text-base sm:text-lg py-3 sm:py-4"
-                onClick={() => { setShowCreateModal(false); router.push('/ai/weekly'); }}
+                onClick={() => { 
+                  analytics.trackFeatureUsage('Weekly Posts Creation');
+                  setShowCreateModal(false); 
+                  router.push('/ai/weekly'); 
+                }}
               >
                 <Calendar className="h-5 w-5 mr-2" /> Weekly Posts
               </Button>
@@ -337,7 +425,11 @@ function DashboardContentInner() {
                 variant="outline"
                 size="lg"
                 className="w-full justify-start text-base sm:text-lg py-3 sm:py-4"
-                onClick={() => { setShowCreateModal(false); router.push('/ai/monthly'); }}
+                onClick={() => { 
+                  analytics.trackFeatureUsage('Monthly Posts Creation');
+                  setShowCreateModal(false); 
+                  router.push('/ai/monthly'); 
+                }}
               >
                 <BarChart3 className="h-5 w-5 mr-2" /> Monthly Posts
               </Button>
@@ -347,20 +439,88 @@ function DashboardContentInner() {
       )}
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-6 sm:py-8">
         {/* Header & Quick Actions */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 sm:mb-8 gap-3 sm:gap-4">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between mb-6 sm:mb-8 gap-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">Welcome{profile ? `, ${profile.business_name}` : ''}!</h1>
             <p className="text-gray-600 text-xs sm:text-sm">Your social media command center</p>
           </div>
-          <div className="flex flex-wrap gap-2 w-full md:w-auto">
-            <Button onClick={() => setShowCreateModal(true)} variant="primary" size="md"><Plus className="h-4 w-4 mr-2" />Create Post</Button>
-            <Button onClick={() => router.push('/media')} variant="secondary" size="md"><Image className="h-4 w-4 mr-2" />Add Media</Button>
-            <Button onClick={() => router.push('/calendar')} variant="outline" size="md"><Calendar className="h-4 w-4 mr-2" />Content Calendar</Button>
-            <span className="inline-flex items-center px-3 py-2 rounded-lg bg-purple-100 text-purple-700 font-semibold text-xs sm:text-sm ml-0 md:ml-2 mt-2 md:mt-0" title="Number of post generations">
-              <Sparkles className="h-4 w-4 mr-1" />
-              {generationCount} Generations
-            </span>
-            <Button onClick={() => router.push('/settings')} variant="ghost" size="md"><Settings className="h-4 w-4 mr-2" />Settings</Button>
+          
+          {/* Action Buttons Grid - 4 in a row, right-aligned */}
+          <div className="flex flex-col items-end gap-4">
+            {/* Main Action Buttons */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <Button 
+                onClick={() => {
+                  analytics.trackFeatureUsage('Create Post Button Clicked');
+                  // Also track with GTM for enhanced analytics
+                  analytics.gtmEvent('dashboard_action', {
+                    action: 'create_post_clicked',
+                    page_section: 'dashboard_header',
+                    user_type: user?.user_metadata?.plan || 'free'
+                  });
+                  setShowCreateModal(true);
+                }} 
+                className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-200 px-4 py-2.5 rounded-lg font-medium"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create Post
+              </Button>
+              <Button 
+                onClick={() => {
+                  analytics.trackFeatureUsage('Add Media Navigation');
+                  router.push('/media');
+                }} 
+                className="bg-white hover:bg-gray-50 text-gray-700 border-2 border-gray-200 hover:border-gray-300 shadow-md hover:shadow-lg transition-all duration-200 px-4 py-2.5 rounded-lg font-medium"
+              >
+                <Image className="h-4 w-4 mr-2" />
+                Add Media
+              </Button>
+              <Button 
+                onClick={() => {
+                  analytics.trackFeatureUsage('AI Enhanced Images Navigation');
+                  // Track with GTM for ecommerce-style tracking
+                  analytics.trackGTMFeatureUsage('ai_enhanced_images', {
+                    feature_type: 'image_enhancement',
+                    user_credits: enhancementCredits,
+                    navigation_source: 'dashboard'
+                  });
+                  router.push('/enhanced-images');
+                }} 
+                className="bg-white hover:bg-gray-50 text-gray-700 border-2 border-gray-200 hover:border-gray-300 shadow-md hover:shadow-lg transition-all duration-200 px-4 py-2.5 rounded-lg font-medium"
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                AI Enhanced
+              </Button>
+              <Button 
+                onClick={() => {
+                  analytics.trackFeatureUsage('Content Calendar Navigation');
+                  router.push('/calendar');
+                }} 
+                className="bg-white hover:bg-gray-50 text-gray-700 border-2 border-gray-200 hover:border-gray-300 shadow-md hover:shadow-lg transition-all duration-200 px-4 py-2.5 rounded-lg font-medium"
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                Content Calendar
+              </Button>
+            </div>
+            
+            {/* Stats and Settings Row */}
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center px-3 py-2 rounded-lg bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 font-semibold text-xs sm:text-sm border border-purple-200 shadow-sm" title="Post generation credits remaining">
+                <Sparkles className="h-4 w-4 mr-1" />
+                {generationCount} Credits
+              </span>
+              <span className="inline-flex items-center px-3 py-2 rounded-lg bg-gradient-to-r from-blue-100 to-purple-100 text-blue-700 font-semibold text-xs sm:text-sm border border-blue-200 shadow-sm" title="AI image enhancement credits remaining">
+                <Image className="h-4 w-4 mr-1" />
+                {enhancementCredits} Enhancements
+              </span>
+              <Button 
+                onClick={() => router.push('/settings')} 
+                className="bg-white hover:bg-gray-50 text-gray-600 border-2 border-gray-200 hover:border-gray-300 shadow-md hover:shadow-lg transition-all duration-200 px-4 py-2.5 rounded-lg font-medium"
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -462,7 +622,7 @@ function DashboardContentInner() {
               <span className="font-semibold text-gray-900">Quick Actions</span>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Button 
               variant="outline" 
               className="justify-start h-auto p-4"
@@ -508,6 +668,21 @@ function DashboardContentInner() {
                 </div>
               </div>
             </Button>
+            <Button 
+              variant="outline" 
+              className="justify-start h-auto p-4"
+              onClick={() => router.push('/enhanced-images')}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-pink-100 rounded-lg flex items-center justify-center">
+                  <Sparkles className="h-5 w-5 text-pink-600" />
+                </div>
+                <div className="text-left">
+                  <div className="font-medium text-gray-900">AI Enhanced Images</div>
+                  <div className="text-xs text-gray-500">View enhanced images</div>
+                </div>
+              </div>
+            </Button>
           </div>
         </div>
       </div>
@@ -532,13 +707,11 @@ function ContentCalendarGrid({ userId }: { userId: string }) {
   useEffect(() => {
     const getWeekDates = () => {
       const today = new Date();
-      const startOfWeek = new Date(today);
-      startOfWeek.setDate(today.getDate() - today.getDay()); // Start from Sunday
       
       const weekDates = [];
       for (let i = 0; i < 7; i++) {
-        const date = new Date(startOfWeek);
-        date.setDate(startOfWeek.getDate() + i);
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
         weekDates.push(date);
       }
       return weekDates;

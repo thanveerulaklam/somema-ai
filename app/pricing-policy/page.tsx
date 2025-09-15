@@ -26,7 +26,7 @@ export default function PricingPolicy() {
             
             <h2 className="text-xl font-semibold text-gray-900 mt-8 mb-4">Overview</h2>
             <p className="text-gray-700 mb-4">
-              Somema AI offers subscription-based pricing for our social media management platform. 
+              Quely.ai offers subscription-based pricing for our social media management platform. 
               All prices are listed in Indian Rupees (INR) and US Dollars (USD) and are subject to 
               applicable taxes.
             </p>
@@ -36,52 +36,59 @@ export default function PricingPolicy() {
               We offer the following subscription plans:
             </p>
             
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
               <div className="border rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Free Plan</h3>
-                <p className="text-2xl font-bold text-blue-600 mb-2">₹0 / $0</p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">🆓 Free Plan</h3>
+                <p className="text-2xl font-bold text-blue-600 mb-2">₹0</p>
                 <p className="text-gray-600 mb-4">per month</p>
                 <ul className="text-sm text-gray-700 space-y-1">
-                  <li>• Basic content creation</li>
-                  <li>• Limited AI generations</li>
-                  <li>• 1 social media account</li>
-                  <li>• Basic analytics</li>
+                  <li>• 15 post generations</li>
+                  <li>• 3 AI image enhancements (cannot be downloaded)</li>
+                  <li>• 50 images stored</li>
+                  <li>• Unlimited posting & scheduling</li>
+                  <li>• Unlimited Meta accounts</li>
                 </ul>
               </div>
               
               <div className="border rounded-lg p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Starter Plan</h3>
-                <p className="text-2xl font-bold text-blue-600 mb-2">₹999 / $12</p>
+                <p className="text-2xl font-bold text-blue-600 mb-2">₹999</p>
                 <p className="text-gray-600 mb-4">per month</p>
                 <ul className="text-sm text-gray-700 space-y-1">
-                  <li>• Advanced AI content generation</li>
-                  <li>• Up to 5 social media accounts</li>
-                  <li>• Priority support</li>
-                  <li>• Advanced analytics</li>
+                  <li>• 100 post generations</li>
+                  <li>• 30 AI image enhancements (downloadable)</li>
+                  <li>• 500 image/video stored</li>
+                  <li>• Unlimited posting & scheduling</li>
+                  <li>• Unlimited Meta accounts</li>
+                  <li>• 🎁 Free Trial (7 Days)</li>
                 </ul>
               </div>
               
               <div className="border rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Professional Plan</h3>
-                <p className="text-2xl font-bold text-blue-600 mb-2">₹1,999 / $24</p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Growth Plan</h3>
+                <p className="text-2xl font-bold text-blue-600 mb-2">₹2,499</p>
                 <p className="text-gray-600 mb-4">per month</p>
                 <ul className="text-sm text-gray-700 space-y-1">
-                  <li>• Unlimited AI generations</li>
-                  <li>• Up to 15 social media accounts</li>
-                  <li>• Team collaboration</li>
-                  <li>• Advanced scheduling</li>
+                  <li>• 300 post generations</li>
+                  <li>• 100 AI image enhancements (downloadable)</li>
+                  <li>• Unlimited image/video stored</li>
+                  <li>• Unlimited posting & scheduling</li>
+                  <li>• Unlimited Meta accounts</li>
+                  <li>• 🎁 Free Trial (7 Days)</li>
                 </ul>
               </div>
               
               <div className="border rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Enterprise Plan</h3>
-                <p className="text-2xl font-bold text-blue-600 mb-2">₹4,999 / $60</p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Scale Plan</h3>
+                <p className="text-2xl font-bold text-blue-600 mb-2">₹8,999</p>
                 <p className="text-gray-600 mb-4">per month</p>
                 <ul className="text-sm text-gray-700 space-y-1">
-                  <li>• Unlimited everything</li>
-                  <li>• Unlimited social accounts</li>
-                  <li>• Dedicated account manager</li>
-                  <li>• Custom integrations</li>
+                  <li>• 1000 post generations</li>
+                  <li>• 500 AI image enhancements (downloadable)</li>
+                  <li>• Unlimited image/video stored</li>
+                  <li>• Unlimited posting & scheduling</li>
+                  <li>• Unlimited Meta accounts</li>
+                  <li>• 🎁 Free Trial (7 Days)</li>
                 </ul>
               </div>
             </div>
@@ -129,8 +136,8 @@ export default function PricingPolicy() {
               If you have any questions about our pricing policy, please contact us at:
             </p>
             <ul className="list-none pl-6 text-gray-700 mb-4">
-              <li><strong>Email:</strong> billing@somema.ai</li>
-              <li><strong>Support:</strong> support@somema.ai</li>
+              <li><strong>Email:</strong> info@mzonetechnologies.com</li>
+              <li><strong>Support:</strong> info@mzonetechnologies.com</li>
             </ul>
           </div>
         </div>

@@ -7,8 +7,8 @@ const INSTAGRAM_REQUIREMENTS = {
   maxReelsDuration: 90, // 90 seconds for reels
   supportedFormats: ['.mp4', '.mov', '.avi', '.wmv', '.flv', '.webm', '.mkv'],
   aspectRatio: {
-    min: 1.91, // 16:9
-    max: 4/5   // 4:5
+    min: 0.5625, // 9:16 (Reels format)
+    max: 1.91    // 16:9 (landscape)
   }
 };
 

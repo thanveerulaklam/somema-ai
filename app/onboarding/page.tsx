@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
+import { CountrySelect } from '../../components/ui/CountrySelect'
+import { StateSelect } from '../../components/ui/StateSelect'
+import { findCountryByName } from '../../lib/countries'
 
 const NICHE_OPTIONS = [
   'Fashion & Beauty',
@@ -40,7 +43,10 @@ export default function OnboardingPage() {
     business_name: '',
     niche: '',
     tone: '',
-    audience: ''
+    audience: '',
+    city: '',
+    state: '',
+    country: ''
   })
   
   const router = useRouter()
@@ -71,24 +77,56 @@ export default function OnboardingPage() {
     setError('')
 
     try {
-      // Insert or update user profile
-      const { error } = await supabase
-        .from('users')
-        .upsert({
-          id: user.id,
-          email: user.email,
-          business_name: formData.business_name,
-          niche: formData.niche,
-          tone: formData.tone,
-          audience: formData.audience,
-          updated_at: new Date().toISOString()
-        })
+      // First, try to update existing profile
+      const { data: existingProfile, error: selectError } = await supabase
+        .from('user_profiles')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (selectError && selectError.code !== 'PGRST116') {
+        // PGRST116 is "not found" error, which is expected for new users
+        throw selectError
+      }
+
+      const profileData = {
+        user_id: user.id,
+        business_name: formData.business_name,
+        industry: formData.niche,
+        brand_tone: formData.tone,
+        target_audience: formData.audience,
+        city: formData.city,
+        state: formData.state,
+        country: formData.country,
+        post_generation_credits: 15,
+        image_enhancement_credits: 3,
+        media_storage_limit: 50,
+        subscription_plan: 'free',
+        updated_at: new Date().toISOString()
+      }
+
+      let error
+      if (existingProfile) {
+        // Update existing profile
+        const { error: updateError } = await supabase
+          .from('user_profiles')
+          .update(profileData)
+          .eq('user_id', user.id)
+        error = updateError
+      } else {
+        // Insert new profile
+        const { error: insertError } = await supabase
+          .from('user_profiles')
+          .insert(profileData)
+        error = insertError
+      }
 
       if (error) throw error
 
       // Redirect to dashboard
       router.push('/dashboard')
     } catch (error: any) {
+      console.error('Onboarding error:', error)
       setError(error.message)
     } finally {
       setLoading(false)
@@ -105,6 +143,9 @@ export default function OnboardingPage() {
         return typeof formData.tone === 'string' && formData.tone.trim().length > 0
       case 4:
         return typeof formData.audience === 'string' && formData.audience.trim().length > 0
+      case 5:
+        return typeof formData.city === 'string' && formData.city.trim().length > 0 &&
+               typeof formData.country === 'string' && formData.country.trim().length > 0
       default:
         return false
     }
@@ -142,10 +183,10 @@ export default function OnboardingPage() {
                   key={niche}
                   type="button"
                   onClick={() => handleInputChange('niche', niche)}
-                  className={`p-3 text-left rounded-lg border transition-colors ${
+                  className={`p-3 text-left rounded-lg border transition-colors text-gray-900 ${
                     formData.niche === niche
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
+                      ? 'border-purple-500 bg-gradient-to-r from-purple-50 to-blue-50 text-purple-700'
+                      : 'border-gray-300 hover:border-gray-400 bg-white'
                   }`}
                 >
                   {niche}
@@ -168,10 +209,10 @@ export default function OnboardingPage() {
                   key={tone}
                   type="button"
                   onClick={() => handleInputChange('tone', tone)}
-                  className={`w-full p-3 text-left rounded-lg border transition-colors ${
+                  className={`w-full p-3 text-left rounded-lg border transition-colors text-gray-900 ${
                     formData.tone === tone
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
+                      ? 'border-purple-500 bg-gradient-to-r from-purple-50 to-blue-50 text-purple-700'
+                      : 'border-gray-300 hover:border-gray-400 bg-white'
                   }`}
                 >
                   {tone}
@@ -198,6 +239,47 @@ export default function OnboardingPage() {
           </div>
         )
       
+      case 5:
+        return (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">Where is your business located?</h3>
+              <p className="text-sm text-gray-600">City and Country are required. State/Province is optional.</p>
+            </div>
+            <div className="space-y-4">
+              <Input
+                label="City *"
+                value={formData.city}
+                onChange={(e) => handleInputChange('city', e.target.value)}
+                placeholder="Enter your city"
+                required
+              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  State/Province (Optional)
+                </label>
+                <StateSelect
+                  value={formData.state}
+                  onChange={(value) => handleInputChange('state', value)}
+                  countryCode={findCountryByName(formData.country)?.code || ''}
+                  placeholder="Select your state/province"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Country *
+                </label>
+                <CountrySelect
+                  value={formData.country}
+                  onChange={(value) => handleInputChange('country', value)}
+                  placeholder="Select your country"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+        )
+      
       default:
         return null
     }
@@ -208,10 +290,10 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-8 px-2 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-blue-50 to-purple-50 py-8 px-2 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-6 sm:space-y-8">
         <div>
-          <div className="mx-auto h-10 w-10 sm:h-12 sm:w-12 bg-blue-600 rounded-lg flex items-center justify-center">
+          <div className="mx-auto h-10 w-10 sm:h-12 sm:w-12 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
             <span className="text-white text-lg sm:text-xl font-bold">S</span>
           </div>
           <h2 className="mt-4 sm:mt-6 text-center text-2xl sm:text-3xl font-extrabold text-gray-900">
@@ -225,8 +307,8 @@ export default function OnboardingPage() {
         {/* Progress bar */}
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div
-            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${(step / 4) * 100}%` }}
+            className="bg-gradient-to-r from-purple-500 to-blue-500 h-2 rounded-full transition-all duration-300"
+            style={{ width: `${(step / 5) * 100}%` }}
           />
         </div>
 
@@ -248,7 +330,7 @@ export default function OnboardingPage() {
               </Button>
             )}
             
-            {step < 4 ? (
+            {step < 5 ? (
               <Button
                 className="ml-auto"
                 onClick={() => setStep(step + 1)}

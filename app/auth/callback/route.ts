@@ -37,9 +37,9 @@ export async function GET(request: NextRequest) {
       // Check if user has completed onboarding
       try {
         const { data: profile } = await supabase
-          .from('users')
+          .from('user_profiles')
           .select('business_name')
-          .eq('id', data.user.id)
+          .eq('user_id', data.user.id)
           .single()
 
         if (profile?.business_name) {

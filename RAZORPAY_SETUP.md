@@ -45,31 +45,44 @@ Run the payment schema to create the required tables:
 
 ## Subscription Plans
 
-The current setup includes 4 subscription plans:
+The current setup includes 4 plans:
 
-1. **Free Plan** - ₹0 / $0
-   - Basic content creation
-   - Limited AI generations (5/month)
-   - 1 social media account
-   - Basic analytics
+1. **🆓 Free Plan** - ₹0/month
+   - 15 post generations
+   - 3 AI image enhancements (cannot be downloaded)
+   - 50 images stored
+   - Unlimited posting & scheduling
+   - Unlimited Meta (Instagram & Facebook) accounts
 
-2. **Starter Plan** - ₹999 / $12
-   - Advanced AI content generation
-   - Up to 5 social media accounts
-   - Priority support
-   - Advanced analytics
+2. **Starter Plan** - ₹999/month or ₹9,990/year (save ₹1,998)
+   - 100 post generations
+   - 30 AI image enhancements (downloadable)
+   - 500 image/video stored
+   - Unlimited posting & scheduling
+   - Unlimited Meta (Instagram & Facebook) accounts
+   - 🎁 Free Trial (7 Days)
 
-3. **Professional Plan** - ₹1,999 / $24
-   - Unlimited AI generations
-   - Up to 15 social media accounts
-   - Team collaboration
-   - Advanced scheduling
+3. **Growth Plan** - ₹2,499/month or ₹24,990/year (save ₹4,998) ⭐ Most Popular
+   - 300 post generations
+   - 100 AI image enhancements (downloadable)
+   - Unlimited image/video stored
+   - Unlimited posting & scheduling
+   - Unlimited Meta (Instagram & Facebook) accounts
+   - 🎁 Free Trial (7 Days)
 
-4. **Enterprise Plan** - ₹4,999 / $60
-   - Unlimited everything
-   - Unlimited social accounts
-   - Dedicated account manager
-   - Custom integrations
+4. **Scale Plan** - ₹8,999/month or ₹89,990/year (save ₹17,998)
+   - 1000 post generations
+   - 500 AI image enhancements (downloadable)
+   - Unlimited image/video stored
+   - Unlimited posting & scheduling
+   - Unlimited Meta (Instagram & Facebook) accounts
+   - 🎁 Free Trial (7 Days)
+
+## Top-ups (One-time Add-ons)
+
+- +25 image enhancements → $12
+- +100 image enhancements → $40
+- +250 image enhancements → $80
 
 ## Payment Flow
 

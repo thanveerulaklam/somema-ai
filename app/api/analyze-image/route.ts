@@ -1,11 +1,86 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { shouldBypassCredits } from '../../../lib/admin-utils'
 
 export async function POST(request: NextRequest) {
   try {
-    const { imageUrl } = await request.json()
+    const { imageUrl, skipCredits } = await request.json();
 
     if (!imageUrl) {
       return NextResponse.json({ error: 'Image URL is required' }, { status: 400 })
+    }
+
+    // Get user ID from authorization header
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader) {
+      return NextResponse.json(
+        { error: 'Authorization header required' },
+        { status: 401 }
+      )
+    }
+
+    const userId = authHeader.replace('Bearer ', '')
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Invalid user ID' },
+        { status: 401 }
+      )
+    }
+
+    // Check if user is admin (bypass credits) or if credits should be skipped
+    const bypassCredits = await shouldBypassCredits(userId) || skipCredits;
+
+    // Check user's post generation credits
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+    
+    let userData: any = null
+    
+    if (!bypassCredits) {
+      // First, try to get user data without credit restrictions
+      let { data: userDataResult, error: userDataError } = await supabase
+        .from('user_profiles')
+        .select('post_generation_credits, subscription_plan')
+        .eq('user_id', userId)
+        .single()
+
+      // If user doesn't exist in user_profiles table, create them with default credits
+      if (userDataError && userDataError.code === 'PGRST116') {
+        console.log('User not found in user_profiles table, creating with default credits...')
+        
+        const { data: newUserData, error: createError } = await supabase
+          .from('user_profiles')
+          .insert({
+            user_id: userId,
+            post_generation_credits: 3, // Default for free plan
+            subscription_plan: 'free'
+          })
+          .select('post_generation_credits, subscription_plan')
+          .single()
+
+        if (createError) {
+          console.error('❌ Error creating user profile:', createError)
+          return NextResponse.json({ 
+            error: 'No post generation credits remaining. Please upgrade your plan or purchase more credits.',
+            creditsRemaining: 0
+          }, { status: 402 })
+        }
+
+        userDataResult = newUserData
+        userDataError = null
+      } else if (userDataError) {
+        console.error('Error fetching user credits:', userDataError)
+        return NextResponse.json({ 
+          error: 'No post generation credits remaining. Please upgrade your plan or purchase more credits.',
+          creditsRemaining: 0
+        }, { status: 402 })
+      }
+
+      userData = userDataResult
+      const currentCredits = userData?.post_generation_credits || 0
+      
+      console.log('✅ Image analysis is free. User credits available:', currentCredits)
+    } else {
+      console.log('👑 Admin user - bypassing credit check for image analysis')
     }
 
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -166,6 +241,9 @@ Be as specific as possible. If you're not sure about a detail, still be specific
         throw new Error('Missing required fields in CLIP response')
       }
       
+      // Image analysis is free - no credits deducted
+      console.log('✅ Image analysis completed (free service). Credits remaining:', userData?.post_generation_credits || 0)
+
       return NextResponse.json({
         success: true,
         analysis: {
@@ -182,6 +260,10 @@ Be as specific as possible. If you're not sure about a detail, still be specific
       // Try to extract information from the raw text if JSON parsing fails
       const extractedInfo = extractInfoFromText(content)
       
+      // Decrement credits after successful analysis (only for non-admin users)
+      // Image analysis is free - no credits deducted (fallback)
+      console.log('✅ Image analysis completed (free service - fallback). Credits remaining:', userData?.post_generation_credits || 0)
+
       return NextResponse.json({
         success: true,
         analysis: extractedInfo

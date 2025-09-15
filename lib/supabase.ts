@@ -3,8 +3,20 @@ import { createBrowserClient, createServerClient } from '@supabase/ssr'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key'
 
-// Client-side Supabase client
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey)
+// Client-side Supabase client with error handling
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+  },
+  global: {
+    headers: {
+      'X-Client-Info': 'quely-ai-web',
+    },
+  },
+})
 
 // Server-side Supabase client (for API routes)
 // Pass the cookies object from the request as the third argument

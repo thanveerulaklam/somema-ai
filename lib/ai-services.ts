@@ -950,23 +950,34 @@ export async function removeBackground(imageUrl: string): Promise<string> {
 }
 
 // CLIP-based Image Analysis for Captioning and Classification (via API route)
-export async function analyzeImageWithCLIP(imageUrl: string): Promise<{
+export async function analyzeImageWithCLIP(imageUrl: string, authHeader?: string): Promise<{
   caption: string
   classification: string
   tags: string[]
   confidence: number
 }> {
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    
+    // Add authorization header if provided
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+    
     const response = await fetch(`/api/analyze-image`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({ imageUrl })
     })
 
     if (!response.ok) {
       const errorData = await response.json()
+      // Pass through credit-related errors with their original message
+      if (response.status === 402) {
+        throw new Error(errorData.error || 'No post generation credits remaining. Please upgrade your plan or purchase more credits.')
+      }
       throw new Error(errorData.error || 'Failed to analyze image')
     }
 
@@ -974,6 +985,10 @@ export async function analyzeImageWithCLIP(imageUrl: string): Promise<{
     return data.analysis
   } catch (error) {
     console.error('CLIP image analysis error:', error)
+    // If it's already a credit-related error, pass it through
+    if (error instanceof Error && error.message.includes('credits')) {
+      throw error
+    }
     throw new Error('Failed to analyze image')
   }
 }
@@ -997,7 +1012,7 @@ export async function generateContentFromAnalyzedImage(
         
         IMAGE CONTENT: ${imageAnalysis.caption}
         PRODUCT TYPE: ${imageAnalysis.classification}
-        PRODUCT TAGS: ${imageAnalysis.tags.join(', ')}
+        PRODUCT TAGS: ${imageAnalysis.tags?.join(', ') || ''}
         
         BUSINESS CONTEXT: ${request.businessContext}
         PLATFORM: ${request.platform}
@@ -1021,7 +1036,7 @@ export async function generateContentFromAnalyzedImage(
         
         PRODUCT: ${imageAnalysis.caption}
         PRODUCT TYPE: ${imageAnalysis.classification}
-        PRODUCT TAGS: ${imageAnalysis.tags.join(', ')}
+        PRODUCT TAGS: ${imageAnalysis.tags?.join(', ') || ''}
         
         Requirements:
         - Use hashtags specific to the actual product shown
@@ -1039,7 +1054,7 @@ export async function generateContentFromAnalyzedImage(
         
         PRODUCT: ${imageAnalysis.caption}
         PRODUCT TYPE: ${imageAnalysis.classification}
-        PRODUCT TAGS: ${imageAnalysis.tags.join(', ')}
+        PRODUCT TAGS: ${imageAnalysis.tags?.join(', ') || ''}
         
         BUSINESS: ${request.businessContext}
         PLATFORM: ${request.platform}
@@ -1155,9 +1170,9 @@ export async function generateInstagramContentFromCLIP(
   }
 
   try {
-    const productType = imageAnalysis.classification.toLowerCase()
-    const productTags = imageAnalysis.tags.join(', ')
-    const productDescription = imageAnalysis.caption
+    const productType = imageAnalysis.classification?.toLowerCase() || 'product'
+    const productTags = imageAnalysis.tags?.join(', ') || ''
+    const productDescription = imageAnalysis.caption || ''
 
     // Detect carousel by checking for '|' in caption (joined captions)
     const isCarousel = productDescription.includes('|')
@@ -1165,7 +1180,7 @@ export async function generateInstagramContentFromCLIP(
     if (isCarousel) {
       // Carousel: build a prompt listing each image
       const captions = productDescription.split('|').map(c => c.trim()).filter(Boolean)
-      prompt = `You are a professional social media content creator. Based on the following analysis of a carousel (multi-image) Instagram post and the business profile, create:\n\n1. A single engaging Instagram caption (2-3 sentences max) that describes the entire carousel and connects the images into a cohesive story.\n2. Relevant hashtags (5-8 hashtags) for the whole carousel.\n\nCAROUSEL IMAGES:\n${captions.map((c, i) => `- Image ${i + 1}: ${c}`).join('\n')}\n\nTAGS: ${imageAnalysis.tags.join(', ')}\n\nBUSINESS PROFILE:\n- Business Name: ${businessProfile.business_name}\n- Industry: ${businessProfile.niche}\n- Brand Tone: ${businessProfile.tone}\n- Target Audience: ${businessProfile.audience}\n\nIMPORTANT: Incorporate the business name "${businessProfile.business_name}" naturally into the caption. Make the content feel authentic to this specific business and its ${businessProfile.tone} tone. Target the ${businessProfile.audience} audience and focus on the ${businessProfile.niche} industry. Focus on the specific product details from the image analysis. Don't use generic phrases like "elevate your style" or "check out this amazing product" unless they're specifically relevant to the product shown. Respond in this exact JSON format:\n\n{
+      prompt = `You are a professional social media content creator. Based on the following analysis of a carousel (multi-image) Instagram post and the business profile, create:\n\n1. A single engaging Instagram caption (2-3 sentences max) that describes the entire carousel and connects the images into a cohesive story.\n2. Relevant hashtags (5-8 hashtags) for the whole carousel.\n\nCAROUSEL IMAGES:\n${captions.map((c, i) => `- Image ${i + 1}: ${c}`).join('\n')}\n\nTAGS: ${imageAnalysis.tags?.join(', ') || ''}\n\nBUSINESS PROFILE:\n- Business Name: ${businessProfile.business_name}\n- Industry: ${businessProfile.niche}\n- Brand Tone: ${businessProfile.tone}\n- Target Audience: ${businessProfile.audience}\n\nIMPORTANT: Incorporate the business name "${businessProfile.business_name}" naturally into the caption. Make the content feel authentic to this specific business and its ${businessProfile.tone} tone. Target the ${businessProfile.audience} audience and focus on the ${businessProfile.niche} industry. Focus on the specific product details from the image analysis. Don't use generic phrases like "elevate your style" or "check out this amazing product" unless they're specifically relevant to the product shown. Respond in this exact JSON format:\n\n{
   "caption": "Your engaging Instagram caption here",
   "hashtags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
 }`
@@ -1182,12 +1197,20 @@ export async function generateInstagramContentFromCLIP(
         promptStyle = 'Focus on the specific features and benefits of this product. Mention what makes it unique and desirable.'
       }
       
-      prompt = `You are a professional social media content creator. Based on the following image analysis and business profile, create:\n\n1. An engaging Instagram caption (2-3 sentences max)\n2. Relevant hashtags (5-8 hashtags)\n\nIMAGE ANALYSIS:\n- Product: ${imageAnalysis.classification}\n- Description: ${imageAnalysis.caption}\n- Tags: ${imageAnalysis.tags.join(', ')}\n- Confidence: ${(imageAnalysis.confidence * 100).toFixed(1)}%\n\nBUSINESS PROFILE:\n- Business Name: ${businessProfile.business_name}\n- Industry: ${businessProfile.niche}\n- Brand Tone: ${businessProfile.tone}\n- Target Audience: ${businessProfile.audience}\n\nIMPORTANT: Incorporate the business name "${businessProfile.business_name}" naturally into the caption. Make the content feel authentic to this specific business and its ${businessProfile.tone} tone. Target the ${businessProfile.audience} audience and focus on the ${businessProfile.niche} industry. Focus on the specific product details from the image analysis. Don't use generic phrases like "elevate your style" or "check out this amazing product" unless they're specifically relevant to the product shown. Respond in this exact JSON format:\n\n{
+      prompt = `You are a professional social media content creator. Based on the following image analysis and business profile, create:\n\n1. An engaging Instagram caption (2-3 sentences max)\n2. Relevant hashtags (5-8 hashtags)\n\nIMAGE ANALYSIS:\n- Product: ${imageAnalysis.classification}\n- Description: ${imageAnalysis.caption}\n- Tags: ${imageAnalysis.tags?.join(', ') || ''}\n- Confidence: ${(imageAnalysis.confidence * 100).toFixed(1)}%\n\nBUSINESS PROFILE:\n- Business Name: ${businessProfile.business_name}\n- Industry: ${businessProfile.niche}\n- Brand Tone: ${businessProfile.tone}\n- Target Audience: ${businessProfile.audience}\n\nIMPORTANT: Incorporate the business name "${businessProfile.business_name}" naturally into the caption. Make the content feel authentic to this specific business and its ${businessProfile.tone} tone. Target the ${businessProfile.audience} audience and focus on the ${businessProfile.niche} industry. Focus on the specific product details from the image analysis. Don't use generic phrases like "elevate your style" or "check out this amazing product" unless they're specifically relevant to the product shown. Respond in this exact JSON format:\n\n{
   "caption": "Your engaging Instagram caption here",
   "hashtags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
 }`
     }
 
+    console.log('🚀 Starting INSTAGRAM CONTENT generation...')
+    console.log('📊 Request details:')
+    console.log('  - Model: gpt-4o-mini')
+    console.log('  - Max tokens: 500')
+    console.log('  - Prompt length:', prompt.length, 'characters')
+    console.log('  - Product type:', productType)
+    console.log('  - Is carousel:', isCarousel)
+    
     const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -1211,6 +1234,13 @@ export async function generateInstagramContentFromCLIP(
       })
     })
 
+    // Log response headers for cost tracking
+    console.log('📈 OpenAI API Response Headers:')
+    console.log('  - Status:', response.status)
+    console.log('  - X-Request-ID:', response.headers.get('x-request-id'))
+    console.log('  - X-RateLimit-Limit:', response.headers.get('x-ratelimit-limit'))
+    console.log('  - X-RateLimit-Remaining:', response.headers.get('x-ratelimit-remaining'))
+
     if (!response.ok) {
       const errorData = await response.text()
       console.error('OpenAI API error response:', errorData)
@@ -1218,6 +1248,26 @@ export async function generateInstagramContentFromCLIP(
     }
 
     const data = await response.json()
+    
+    // Log usage information
+    if (data.usage) {
+      console.log('💰 INSTAGRAM CONTENT Generation Usage:')
+      console.log('  - Input tokens:', data.usage.prompt_tokens)
+      console.log('  - Output tokens:', data.usage.completion_tokens)
+      console.log('  - Total tokens:', data.usage.total_tokens)
+      
+      // Calculate cost (gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output)
+      const inputCost = (data.usage.prompt_tokens / 1000000) * 0.15
+      const outputCost = (data.usage.completion_tokens / 1000000) * 0.60
+      const totalCost = inputCost + outputCost
+      
+      console.log('  - Input cost: $' + inputCost.toFixed(6))
+      console.log('  - Output cost: $' + outputCost.toFixed(6))
+      console.log('  - Total cost: $' + totalCost.toFixed(6))
+    }
+    
+    console.log('✅ INSTAGRAM CONTENT generation complete!')
+    
     const content = data.choices[0].message.content.trim()
     
     try {

@@ -41,7 +41,6 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [debug, setDebug] = useState<any>(null)
 
   useEffect(() => {
     fetchConnections()
@@ -54,8 +53,6 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       
-      console.log('Fetching Meta connections for user:', user.id)
-      
       const response = await fetch('/api/meta/connect', {
         headers: {
           'Authorization': `Bearer ${user.id}`
@@ -64,18 +61,20 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
       
       if (!response.ok) {
         const errorData = await response.json()
+        // Don't show error for "Meta account not connected" - this is expected for new users
+        if (errorData.error === 'Meta account not connected') {
+          setAvailable([])
+          setConnected([])
+          return
+        }
         throw new Error(errorData.error || 'Failed to fetch Meta connections')
       }
       
       const data = await response.json()
-      console.log('Meta connections data:', data)
       
       setAvailable(data.available || [])
       setConnected(data.connected || [])
-      setDebug(data.debug || null)
       
-      console.log('Available pages:', data.available?.length || 0)
-      console.log('Connected accounts:', data.connected?.length || 0)
     } catch (err: any) {
       console.error('Error fetching Meta connections:', err)
       setError(err.message || 'Failed to fetch Meta connections')
@@ -103,8 +102,15 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
         const data = await response.json()
         throw new Error(data.error || 'Failed to connect')
       }
-      setSuccess('Connected successfully!')
-      fetchConnections()
+      
+      const result = await response.json()
+      
+      // Immediately update the connected state to reflect single connection
+      setConnected(result.connected || [])
+      setSuccess('Connected successfully! Previous connections have been disconnected.')
+      
+      // Force refresh connections to ensure UI reflects single connection
+      setTimeout(() => fetchConnections(), 500)
     } catch (err: any) {
       setError(err.message || 'Failed to connect')
     } finally {
@@ -164,6 +170,37 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
     }
   }
 
+  const handleCleanupConnections = async () => {
+    setLoading(true)
+    setError('')
+    setSuccess('')
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const response = await fetch('/api/meta/connect', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${user.id}`
+        }
+      })
+      
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to cleanup connections')
+      }
+      
+      const result = await response.json()
+      
+      setSuccess(result.message || 'Connections cleaned up successfully!')
+      fetchConnections()
+    } catch (err: any) {
+      setError(err.message || 'Failed to cleanup connections')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleReconnectMeta = () => {
     window.location.href = '/api/meta/oauth'
   }
@@ -185,6 +222,16 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
         >
           Disconnect All
         </Button>
+        {connected.length > 1 && (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleCleanupConnections}
+            disabled={loading}
+          >
+            🧹 Cleanup ({connected.length} → 1)
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -201,6 +248,7 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
         >
           Refresh
         </Button>
+
       </div>
       {error && (
         <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-red-800 text-sm">{error}</div>
@@ -212,22 +260,24 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
         <div className="mb-2 flex items-center text-gray-500"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading...</div>
       )}
       
-      {/* Connection Summary */}
-      {!loading && available.length > 0 && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-blue-800">
-              <strong>Connection Summary:</strong> {connected.length} of {available.reduce((total, page) => total + (page.instagram_accounts?.length || 0), 0)} Instagram accounts connected
-            </div>
-            <div className="text-xs text-blue-600">
-              {available.length} Facebook Pages found
-            </div>
-          </div>
-        </div>
-      )}
+
       <div className="space-y-6">
         {available.length === 0 && (
-          <div className="text-gray-500">No Facebook Pages or Instagram accounts found.</div>
+          <div className="text-center py-8">
+            <div className="text-gray-500 mb-4">
+              <Facebook className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm">No Meta account connected</p>
+              <p className="text-xs text-gray-400 mt-1">Connect your Facebook account to start posting</p>
+            </div>
+            <Button
+              onClick={handleReconnectMeta}
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Link className="h-4 w-4 mr-2" />
+              Connect Meta Account
+            </Button>
+          </div>
         )}
         {available.map((page) => (
           <div key={page.id} className="border rounded p-4 mb-2 bg-gray-50">
@@ -281,12 +331,6 @@ export default function MetaConnection({ onConnected }: MetaConnectionProps) {
           </div>
         ))}
       </div>
-      {debug && (
-        <details className="mt-4 bg-gray-100 rounded p-2 text-xs">
-          <summary className="cursor-pointer font-semibold">Show Raw Meta API Debug Output</summary>
-          <pre className="overflow-x-auto whitespace-pre-wrap">{JSON.stringify(debug, null, 2)}</pre>
-        </details>
-      )}
     </div>
   )
 } 

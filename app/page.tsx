@@ -26,11 +26,116 @@ import {
 
 export default function Home() {
   const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showLoginForm, setShowLoginForm] = useState(false)
+  const [isIndianVisitor, setIsIndianVisitor] = useState(false)
+  const [currency, setCurrency] = useState<'USD' | 'INR'>('USD')
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [currentReviewIndex, setCurrentReviewIndex] = useState(0)
+
+  // Carousel images for AI Image Enhancement
+  const enhancementImages = [
+    '/images/image_enhancement.png',
+    '/images/4_image_enhancement.png',
+    '/images/5_image_enhancement.png',
+    '/images/6_image_enhancement.png',
+    '/images/7_image_enhancement.png',
+    '/images/8_image_enhancement.png',
+    '/images/9_image_enhancement.png',
+    '/images/10_image_enhancement.png',
+    '/images/11_image_enhancement.png',
+    '/images/12_image_enhancement.png',
+    '/images/13_image_enhancement.png'
+  ]
+
+  const nextImage = () => {
+    setCurrentImageIndex((prev) => (prev + 1) % enhancementImages.length)
+  }
+
+  const prevImage = () => {
+    setCurrentImageIndex((prev) => (prev - 1 + enhancementImages.length) % enhancementImages.length)
+  }
+
+  const goToImage = (index: number) => {
+    setCurrentImageIndex(index)
+  }
+
+  // Customer reviews data
+  const customerReviews = [
+    {
+      name: "Anish Kumar",
+      title: "CEO, Uma Traders",
+      review: "Quely.ai has completely transformed our social media strategy. The AI-generated content is incredibly engaging and saves us hours every week. Our sales have increased by 40% since we started using it.",
+      avatar: "A"
+    },
+    {
+      name: "Sundar Ram",
+      title: "MD, Sangam Electronics",
+      review: "The AI analysis is spot-on. It understands our brand voice perfectly and generates hashtags that actually work. Our Instagram engagement has tripled in just 2 months.",
+      avatar: "S"
+    },
+    {
+      name: "Sathya",
+      title: "MD, Amaya Boutique",
+      review: "Scheduling content for 3 months in advance has been a game-changer. Our engagement has increased by 300% and we never worry about posting consistently anymore.",
+      avatar: "S"
+    },
+    {
+      name: "Pankaj Jain",
+      title: "Owner, Mahaveer Fashions",
+      review: "The image enhancement feature is incredible. Our product photos look professional now, and customers are more likely to buy when they see high-quality images. ROI has been amazing.",
+      avatar: "P"
+    },
+    {
+      name: "Thanveer",
+      title: "Owner, M Zone Menswear",
+      review: "Quely.ai made social media management so simple. We went from spending 10+ hours weekly to just 2 hours. The AI understands our fashion niche perfectly.",
+      avatar: "T"
+    },
+    {
+      name: "Umar Mukthar",
+      title: "MD, Buttons Menswear",
+      review: "The best investment we've made for our business. Our social media presence is now professional and consistent. The AI-generated captions are always on-brand and engaging.",
+      avatar: "U"
+    },
+    {
+      name: "Saranya",
+      title: "MD, Zaara Fashions",
+      review: "From basic product shots to stunning professional images - Quely.ai transformed our entire visual marketing. Our conversion rate improved by 60% after using the enhancement feature.",
+      avatar: "S"
+    },
+    {
+      name: "Sarah Johnson",
+      title: "Marketing Director, TechStart",
+      review: "Quely.ai has completely transformed our social media strategy. The AI-generated content is incredibly engaging and saves us hours every week.",
+      avatar: "S"
+    },
+    {
+      name: "Mike Chen",
+      title: "Founder, EcoFashion",
+      review: "The AI analysis is spot-on. It understands our brand voice perfectly and generates hashtags that actually work.",
+      avatar: "M"
+    },
+    {
+      name: "Alex Rodriguez",
+      title: "CEO, FitnessFlow",
+      review: "Scheduling content for 3 months in advance has been a game-changer. Our engagement has increased by 300%.",
+      avatar: "A"
+    }
+  ]
+
+  const nextReview = () => {
+    setCurrentReviewIndex((prev) => (prev + 1) % customerReviews.length)
+  }
+
+  const prevReview = () => {
+    setCurrentReviewIndex((prev) => (prev - 1 + customerReviews.length) % customerReviews.length)
+  }
+
+  const goToReview = (index: number) => {
+    setCurrentReviewIndex(index)
+  }
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -42,9 +147,9 @@ export default function Home() {
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
           const { data: profile } = await supabase
-            .from('users')
+            .from('user_profiles')
             .select('business_name')
-            .eq('id', user.id)
+            .eq('user_id', user.id)
             .single()
 
           if (profile?.business_name) {
@@ -58,40 +163,30 @@ export default function Home() {
       }
     }
     checkAuth()
+
+    // Detect Indian visitors
+    const detectIndianVisitor = async () => {
+      try {
+        const response = await fetch('https://ipapi.co/json/');
+        const data = await response.json();
+        
+        if (data.country_code === 'IN') {
+          setIsIndianVisitor(true);
+          setCurrency('INR');
+        } else {
+          setIsIndianVisitor(false);
+          setCurrency('USD');
+        }
+      } catch (error) {
+        console.log('Could not detect location, defaulting to USD');
+        setIsIndianVisitor(false);
+        setCurrency('USD');
+      }
+    };
+
+    detectIndianVisitor();
   }, [router])
 
-  const handleEmailLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) throw error
-
-      if (data.user) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('business_name')
-          .eq('id', data.user.id)
-          .single()
-
-        if (profile?.business_name) {
-          router.push('/dashboard')
-        } else {
-          router.push('/onboarding')
-        }
-      }
-    } catch (error: any) {
-      setError(error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleGoogleLogin = async () => {
     setLoading(true)
@@ -119,7 +214,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <div className="h-8 w-8 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center">
+              <div className="h-8 w-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl flex items-center justify-center">
                 <span className="text-white text-sm font-bold">Q</span>
               </div>
               <h1 className="ml-3 text-xl font-bold text-gray-900">
@@ -128,15 +223,24 @@ export default function Home() {
             </div>
             
             <div className="flex items-center space-x-3 sm:space-x-4">
-              <button
-                onClick={() => setShowLoginForm(!showLoginForm)}
-                className="text-gray-600 hover:text-gray-900 font-medium transition-colors text-sm sm:text-base"
-              >
-                Sign in
-              </button>
+              <Link href="/tutorial">
+                <button className="text-gray-600 hover:text-gray-900 font-medium transition-colors text-sm sm:text-base">
+                  Tutorial
+                </button>
+              </Link>
+              <Link href="/pricing">
+                <button className="text-gray-600 hover:text-gray-900 font-medium transition-colors text-sm sm:text-base">
+                  Pricing
+                </button>
+              </Link>
+              <Link href="/login">
+                <button className="text-gray-600 hover:text-gray-900 font-medium transition-colors text-sm sm:text-base">
+                  Sign in
+                </button>
+              </Link>
               <Link href="/signup">
-                <Button size="sm" className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-lg text-sm">
-                  Start Free Trial
+                <Button size="sm" className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 shadow-lg text-sm">
+                  Subscribe
                 </Button>
               </Link>
             </div>
@@ -145,7 +249,7 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+              <section className="relative overflow-hidden bg-gradient-to-br from-purple-50 via-white to-blue-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 lg:py-24">
           <div className="text-center max-w-4xl mx-auto">
             <div className="mb-6">
@@ -156,29 +260,29 @@ export default function Home() {
             </div>
             
             <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-4 sm:mb-6 leading-tight">
-              Transform Your
+              Stop Spending Hours on
               <span className="text-indigo-600"> Social Media</span>
               <br />
-              <span className="text-gray-900">with AI</span>
+              <span className="text-gray-900">Start Growing Your Business</span>
             </h1>
             
             <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-6 sm:mb-8 leading-relaxed max-w-2xl mx-auto">
-              Upload your product images and videos. Our AI analyzes them perfectly, generates engaging captions and hashtags tailored to your business niche, then posts or schedules them on Facebook and Instagram.
+              Quely.ai transforms your business by automatically creating engaging social media content from your product images. Get back 10+ hours per week while your AI-powered posts drive more sales and followers. Focus on what matters - growing your business, not managing social media.
             </p>
 
             {/* Customer Benefits */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 sm:mb-8 max-w-2xl mx-auto">
               <div className="text-center p-3 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600 mb-1">10x</div>
-                <div className="text-xs sm:text-sm text-gray-600">Faster Content Creation</div>
+                <div className="text-2xl font-bold text-green-600 mb-1">10+</div>
+                <div className="text-xs sm:text-sm text-gray-600">Hours Back Per Week</div>
               </div>
               <div className="text-center p-3 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600 mb-1">80%</div>
-                <div className="text-xs sm:text-sm text-gray-600">Time Saved Weekly</div>
+                <div className="text-2xl font-bold text-blue-600 mb-1">3x</div>
+                <div className="text-xs sm:text-sm text-gray-600">More Sales & Followers</div>
               </div>
               <div className="text-center p-3 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600 mb-1">3x</div>
-                <div className="text-xs sm:text-sm text-gray-600">More Engagement</div>
+                <div className="text-2xl font-bold text-purple-600 mb-1">0</div>
+                <div className="text-xs sm:text-sm text-gray-600">Stress About Social Media</div>
               </div>
             </div>
 
@@ -195,60 +299,19 @@ export default function Home() {
               <div className="max-w-md mx-auto mb-6 sm:mb-8 p-4 sm:p-6 bg-white rounded-2xl shadow-xl border border-gray-100">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Quick Sign In</h3>
                 
-                <form onSubmit={handleEmailLogin} className="space-y-4">
-                  <Input
-                    label="Email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter your email"
-                    required
-                  />
-                  <Input
-                    label="Password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    required
-                  />
-                  
-                  <div className="text-right">
-                    <Link 
-                      href="/forgot-password" 
-                      className="text-xs sm:text-sm text-indigo-600 hover:text-indigo-500 transition-colors"
-                    >
-                      Forgot your password?
-                    </Link>
-                  </div>
-                  
-                  {error && (
-                    <div className="text-red-600 text-xs sm:text-sm text-center">{error}</div>
-                  )}
-                  
-                  <Button
-                    type="submit"
-                    className="w-full h-10 sm:h-12 bg-indigo-600 hover:bg-indigo-700 text-sm sm:text-base"
-                    loading={loading}
-                    disabled={!email || !password}
-                  >
-                    Sign in to Quely.ai
-                  </Button>
-                </form>
+                {error && (
+                  <div className="text-red-600 text-xs sm:text-sm text-center mb-4">{error}</div>
+                )}
                 
-                <div className="mt-4">
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-gray-200" />
-                    </div>
-                    <div className="relative flex justify-center text-xs sm:text-sm">
-                      <span className="px-2 bg-white text-gray-500">Or</span>
-                    </div>
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Choose your preferred sign-in method
+                    </p>
                   </div>
                   
                   <Button
-                    variant="outline"
-                    className="w-full mt-4 h-10 sm:h-12 text-sm sm:text-base"
+                    className="w-full h-10 sm:h-12 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold text-sm sm:text-base rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
                     onClick={handleGoogleLogin}
                     disabled={loading}
                   >
@@ -272,6 +335,12 @@ export default function Home() {
                     </svg>
                     Continue with Google
                   </Button>
+
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500">
+                      🔒 Secure sign-in with your existing Google account
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
@@ -279,7 +348,7 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center mb-6 sm:mb-8">
               <Link href="/signup" className="w-full sm:w-auto">
                 <Button size="lg" className="w-full sm:w-auto text-sm sm:text-base lg:text-lg px-6 sm:px-8 py-3 sm:py-4 bg-indigo-600 hover:bg-indigo-700 shadow-lg h-12 sm:h-14">
-                  Start Free Trial
+                  Subscribe
                   <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 ml-2" />
                 </Button>
               </Link>
@@ -298,10 +367,6 @@ export default function Home() {
               <div className="flex items-center">
                 <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-500 mr-1 sm:mr-2" />
                 <span>No credit card required</span>
-              </div>
-              <div className="flex items-center">
-                <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-500 mr-1 sm:mr-2" />
-                <span>14-day free trial</span>
               </div>
               <div className="flex items-center">
                 <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-500 mr-1 sm:mr-2" />
@@ -360,7 +425,7 @@ export default function Home() {
                 Smart Scheduling
               </h3>
               <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
-                Auto-schedule content up to 3 months in advance. Our AI determines the best posting times for maximum engagement.
+                Auto-schedule content up to 1 month in advance. Our AI determines the best posting times for maximum engagement.
               </p>
             </div>
 
@@ -414,39 +479,146 @@ export default function Home() {
               How Quely.ai Works
             </h2>
             <p className="text-base sm:text-lg lg:text-xl text-gray-600 max-w-3xl mx-auto">
-              Three simple steps to transform your social media presence
+              Three powerful features that transform your business
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8 sm:gap-12">
-            <div className="text-center">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
-                <Upload className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+          <div className="space-y-16">
+            {/* 1. AI Caption & Hashtag Generation */}
+            <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow">
+              <div className="grid lg:grid-cols-2 gap-8 items-center">
+                {/* Image on the left */}
+                <div className="order-2 lg:order-1">
+                  <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-200">
+                    <img 
+                      src="/images/post_generation.png" 
+                      alt="AI Caption & Hashtag Generation - Product image analysis and content generation"
+                      className="w-full h-auto rounded-lg"
+                    />
+                  </div>
+                </div>
+                
+                {/* Text on the right */}
+                <div className="order-1 lg:order-2">
+                  <div className="flex items-center mb-4">
+                    <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl flex items-center justify-center mr-4">
+                      <Sparkles className="h-6 w-6 text-white" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900">AI Caption & Hashtag Generation</h3>
+                  </div>
+                  
+                  <p className="text-gray-600 leading-relaxed text-lg mb-6">
+                    Upload your product images and our AI instantly analyzes them to understand your brand, products, and target audience. It then generates compelling captions and relevant hashtags that drive engagement and sales.
+                  </p>
+                  
+                  <div className="flex items-center text-green-600">
+                    <CheckCircle className="h-5 w-5 mr-3" />
+                    <span className="font-medium">Perfect for your business niche</span>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-3 sm:mb-4">Upload Your Content</h3>
-              <p className="text-sm sm:text-base text-gray-600 max-w-sm mx-auto">
-                Upload your product images or videos to our AI-powered platform. Our system analyzes your content to understand your brand and niche.
-              </p>
             </div>
 
-            <div className="text-center">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
-                <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+            {/* 2. Smart Scheduling */}
+            <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow">
+              <div className="grid lg:grid-cols-2 gap-8 items-center">
+                {/* Image on the left */}
+                <div className="order-2 lg:order-1">
+                  <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-200">
+                    <img 
+                      src="/images/schedule_post.png" 
+                      alt="Smart Scheduling - AI-powered content scheduling and optimal posting times"
+                      className="w-full h-auto rounded-lg"
+                    />
+                  </div>
+                </div>
+                
+                {/* Text on the right */}
+                <div className="order-1 lg:order-2">
+                  <div className="flex items-center mb-4">
+                    <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-teal-500 rounded-xl flex items-center justify-center mr-4">
+                      <Calendar className="h-6 w-6 text-white" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900">Smart Scheduling</h3>
+                  </div>
+                  
+                  <p className="text-gray-600 leading-relaxed text-lg mb-6">
+                    Never worry about when to post again. Our AI determines the best posting times for maximum engagement and automatically schedules your content up to 1 month in advance across Facebook and Instagram.
+                  </p>
+                  
+                  <div className="flex items-center text-green-600">
+                    <CheckCircle className="h-5 w-5 mr-3" />
+                    <span className="font-medium">Maximum engagement guaranteed</span>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-3 sm:mb-4">AI Generates Content</h3>
-              <p className="text-sm sm:text-base text-gray-600 max-w-sm mx-auto">
-                Our AI creates engaging captions and hashtags tailored to your business niche, ensuring maximum reach and engagement.
-              </p>
             </div>
 
-            <div className="text-center sm:col-span-2 lg:col-span-1">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
-                <Calendar className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+            {/* 3. Image Enhancement */}
+            <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow">
+              <div className="grid lg:grid-cols-2 gap-8 items-center">
+                {/* Image carousel on the left */}
+                <div className="order-2 lg:order-1">
+                  <div className="bg-white rounded-xl p-4 shadow-lg border border-gray-200">
+                    <div className="relative">
+                      {/* Main Image */}
+                      <img 
+                        src={enhancementImages[currentImageIndex]} 
+                        alt="AI Image Enhancement - Transform ordinary photos into professional-quality images"
+                        className="w-full h-auto rounded-lg"
+                      />
+                      
+                      {/* Navigation Arrows */}
+                      <button
+                        onClick={prevImage}
+                        className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white rounded-full p-2 transition-all"
+                      >
+                        <ArrowRight className="h-4 w-4 rotate-180" />
+                      </button>
+                      <button
+                        onClick={nextImage}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 hover:bg-opacity-70 text-white rounded-full p-2 transition-all"
+                      >
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                      
+                      {/* Dots Indicator */}
+                      <div className="flex justify-center mt-4 space-x-2">
+                        {enhancementImages.map((_, index) => (
+                          <button
+                            key={index}
+                            onClick={() => goToImage(index)}
+                            className={`w-2 h-2 rounded-full transition-all ${
+                              index === currentImageIndex 
+                                ? 'bg-orange-500' 
+                                : 'bg-gray-300 hover:bg-gray-400'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Text on the right */}
+                <div className="order-1 lg:order-2">
+                  <div className="flex items-center mb-4">
+                    <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl flex items-center justify-center mr-4">
+                      <span className="text-white text-4xl">✨</span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900">AI Image Enhancement</h3>
+                  </div>
+                  
+                  <p className="text-gray-600 leading-relaxed text-lg mb-6">
+                    Transform ordinary product photos into stunning, professional-quality images. Our AI enhances lighting, colors, and composition to make your products irresistible to customers.
+                  </p>
+                  
+                  <div className="flex items-center text-green-600">
+                    <CheckCircle className="h-5 w-5 mr-3" />
+                    <span className="font-medium">Professional results instantly</span>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-3 sm:mb-4">Schedule & Publish</h3>
-              <p className="text-sm sm:text-base text-gray-600 max-w-sm mx-auto">
-                Schedule your content for optimal posting times or publish immediately to Facebook and Instagram with one click.
-              </p>
             </div>
           </div>
         </div>
@@ -464,131 +636,161 @@ export default function Home() {
             </p>
                 </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 max-w-6xl mx-auto">
-            {/* Starter Plan */}
-            <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="text-center mb-6 sm:mb-8">
-                <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Starter</h3>
-                <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">$29</div>
-                <div className="text-sm sm:text-base text-gray-600">per month</div>
+          <div className="flex flex-wrap justify-center gap-6 max-w-full mx-auto">
+            {/* Free Plan */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-lg hover:shadow-xl transition-shadow w-56 flex-shrink-0">
+              <div className="text-center mb-6">
+                <h3 className="text-base font-bold text-gray-900 mb-2">🆓 Free</h3>
+                <div className="text-2xl font-bold text-gray-900 mb-2">{currency === 'INR' ? '₹0' : '$0'}</div>
+                <div className="text-sm text-gray-600">per month</div>
               </div>
               
-              <ul className="space-y-3 sm:space-y-4 mb-6 sm:mb-8">
+              <ul className="space-y-2 mb-6">
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">50 AI content generations</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">15 post generations</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Instagram & Facebook posting</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">3 AI enhancements (cannot be downloaded)</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Media library (5GB)</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">50 images stored</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Basic analytics</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Unlimited posting</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Email support</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Unlimited Meta accounts</span>
                 </li>
               </ul>
               
               <Link href="/signup" className="block">
-                <Button className="w-full h-10 sm:h-12 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-sm sm:text-base">
-                  Start Free Trial
+                <Button className="w-full h-9 bg-gray-100 text-gray-900 hover:bg-gray-200 text-sm">
+                  Get Started Free
                 </Button>
               </Link>
             </div>
 
-            {/* Professional Plan */}
-            <div className="bg-indigo-600 rounded-xl sm:rounded-2xl p-6 sm:p-8 shadow-xl relative">
-              <div className="absolute -top-3 sm:-top-4 left-1/2 transform -translate-x-1/2">
-                <span className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-3 sm:px-4 py-1 sm:py-2 rounded-full text-xs sm:text-sm font-semibold">
-                  Most Popular
-                </span>
-                </div>
-              
-              <div className="text-center mb-6 sm:mb-8">
-                <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">Professional</h3>
-                <div className="text-3xl sm:text-4xl font-bold text-white mb-2">$79</div>
-                <div className="text-sm sm:text-base text-indigo-100">per month</div>
+            {/* Starter Plan */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-lg hover:shadow-xl transition-shadow w-56 flex-shrink-0">
+              <div className="text-center mb-6">
+                <h3 className="text-base font-bold text-gray-900 mb-2">Starter</h3>
+                <div className="text-2xl font-bold text-gray-900 mb-2">{currency === 'INR' ? '₹999' : '$29'}</div>
+                <div className="text-sm text-gray-600">per month</div>
               </div>
               
-              <ul className="space-y-3 sm:space-y-4 mb-6 sm:mb-8">
+              <ul className="space-y-2 mb-6">
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-white mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-white">200 AI content generations</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">100 post generations</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-white mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-white">Instagram & Facebook posting</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">30 AI enhancements (downloadable)</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-white mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-white">Media library (25GB)</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Unlimited image/video stored</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-white mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-white">Advanced analytics</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Unlimited posting</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-white mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-white">Priority support</span>
-                </li>
-                <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-white mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-white">3-month auto-scheduling</span>
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Unlimited Meta accounts</span>
                 </li>
               </ul>
               
-              <Link href="/signup" className="block">
-                <Button className="w-full h-10 sm:h-12 bg-white text-indigo-600 hover:bg-gray-50 text-sm sm:text-base">
-                  Start Free Trial
+              <Link href="/pricing" className="block">
+                <Button className="w-full h-9 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-sm">
+                  Subscribe
                 </Button>
               </Link>
-                </div>
+            </div>
 
-            {/* Enterprise Plan */}
-            <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow sm:col-span-2 lg:col-span-1">
-              <div className="text-center mb-6 sm:mb-8">
-                <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Enterprise</h3>
-                <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">$199</div>
-                <div className="text-sm sm:text-base text-gray-600">per month</div>
+            {/* Growth Plan - Most Popular */}
+            <div className="bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg p-6 shadow-xl relative w-56 flex-shrink-0">
+              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                <span className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap">
+                  Most Popular
+                </span>
               </div>
               
-              <ul className="space-y-3 sm:space-y-4 mb-6 sm:mb-8">
+              <div className="text-center mb-6 pt-2">
+                <h3 className="text-base font-bold text-white mb-2">Growth</h3>
+                <div className="text-2xl font-bold text-white mb-2">{currency === 'INR' ? '₹2,499' : '$79'}</div>
+                <div className="text-sm text-indigo-100">per month</div>
+              </div>
+              
+              <ul className="space-y-2 mb-6">
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Unlimited AI generations</span>
+                  <CheckCircle className="h-4 w-4 text-white mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-white">300 post generations</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">All social platforms</span>
+                  <CheckCircle className="h-4 w-4 text-white mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-white">100 AI enhancements (downloadable)</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Unlimited media storage</span>
+                  <CheckCircle className="h-4 w-4 text-white mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-white">Unlimited image/video stored</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Custom analytics</span>
+                  <CheckCircle className="h-4 w-4 text-white mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-white">Unlimited posting</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Dedicated support</span>
-                </li>
-                <li className="flex items-start">
-                  <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-sm sm:text-base text-gray-700">Team collaboration</span>
+                  <CheckCircle className="h-4 w-4 text-white mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-white">Unlimited Meta accounts</span>
                 </li>
               </ul>
               
-              <Link href="/signup" className="block">
-                <Button className="w-full h-10 sm:h-12 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-sm sm:text-base">
-                  Start Free Trial
+              <Link href="/pricing" className="block">
+                <Button className="w-full h-9 bg-white text-indigo-600 hover:bg-gray-50 text-sm">
+                  Subscribe
+                </Button>
+              </Link>
+            </div>
+
+            {/* Scale Plan */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-lg hover:shadow-xl transition-shadow w-56 flex-shrink-0">
+              <div className="text-center mb-6">
+                <h3 className="text-base font-bold text-gray-900 mb-2">Scale</h3>
+                <div className="text-2xl font-bold text-gray-900 mb-2">{currency === 'INR' ? '₹8,999' : '$199'}</div>
+                <div className="text-sm text-gray-600">per month</div>
+              </div>
+              
+              <ul className="space-y-2 mb-6">
+                <li className="flex items-start">
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">1000 post generations</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">500 AI enhancements (downloadable)</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Unlimited image/video stored</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Unlimited posting</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="h-4 w-4 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Unlimited Meta accounts</span>
+                </li>
+              </ul>
+              
+              <Link href="/pricing" className="block">
+                <Button className="w-full h-9 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-sm">
+                  Subscribe
                 </Button>
               </Link>
             </div>
@@ -608,65 +810,100 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-            <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="flex items-center mb-4">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-500 fill-current" />
-                ))}
-              </div>
-              <p className="text-sm sm:text-base text-gray-700 mb-6">
-                "Quely.ai has completely transformed our social media strategy. The AI-generated content is incredibly engaging and saves us hours every week."
-              </p>
-              <div className="flex items-center">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold mr-3 sm:mr-4 text-sm sm:text-base">
-                  S
+          {/* Slidable Reviews Carousel */}
+          <div className="relative max-w-6xl mx-auto">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+              {/* Review Card 1 */}
+              <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow">
+                <div className="flex items-center mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-500 fill-current" />
+                  ))}
                 </div>
-                <div>
-                  <p className="font-semibold text-gray-900 text-sm sm:text-base">Sarah Johnson</p>
-                  <p className="text-gray-600 text-xs sm:text-sm">Marketing Director, TechStart</p>
+                <p className="text-sm sm:text-base text-gray-700 mb-6">
+                  "{customerReviews[currentReviewIndex].review}"
+                </p>
+                <div className="flex items-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold mr-3 sm:mr-4 text-sm sm:text-base">
+                    {customerReviews[currentReviewIndex].avatar}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900 text-sm sm:text-base">{customerReviews[currentReviewIndex].name}</p>
+                    <p className="text-gray-600 text-xs sm:text-sm">{customerReviews[currentReviewIndex].title}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Review Card 2 */}
+              <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow">
+                <div className="flex items-center mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-500 fill-current" />
+                  ))}
+                </div>
+                <p className="text-sm sm:text-base text-gray-700 mb-6">
+                  "{customerReviews[(currentReviewIndex + 1) % customerReviews.length].review}"
+                </p>
+                <div className="flex items-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-600 rounded-full flex items-center justify-center text-white font-bold mr-3 sm:mr-4 text-sm sm:text-base">
+                    {customerReviews[(currentReviewIndex + 1) % customerReviews.length].avatar}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900 text-sm sm:text-base">{customerReviews[(currentReviewIndex + 1) % customerReviews.length].name}</p>
+                    <p className="text-gray-600 text-xs sm:text-sm">{customerReviews[(currentReviewIndex + 1) % customerReviews.length].title}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Review Card 3 */}
+              <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow sm:col-span-2 lg:col-span-1">
+                <div className="flex items-center mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-500 fill-current" />
+                  ))}
+                </div>
+                <p className="text-sm sm:text-base text-gray-700 mb-6">
+                  "{customerReviews[(currentReviewIndex + 2) % customerReviews.length].review}"
+                </p>
+                <div className="flex items-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-pink-600 rounded-full flex items-center justify-center text-white font-bold mr-3 sm:mr-4 text-sm sm:text-base">
+                    {customerReviews[(currentReviewIndex + 2) % customerReviews.length].avatar}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900 text-sm sm:text-base">{customerReviews[(currentReviewIndex + 2) % customerReviews.length].name}</p>
+                    <p className="text-gray-600 text-xs sm:text-sm">{customerReviews[(currentReviewIndex + 2) % customerReviews.length].title}</p>
+                  </div>
                 </div>
               </div>
             </div>
-
-            <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="flex items-center mb-4">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-500 fill-current" />
-                ))}
-              </div>
-              <p className="text-sm sm:text-base text-gray-700 mb-6">
-                "The AI analysis is spot-on. It understands our brand voice perfectly and generates hashtags that actually work."
-              </p>
-              <div className="flex items-center">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-600 rounded-full flex items-center justify-center text-white font-bold mr-3 sm:mr-4 text-sm sm:text-base">
-                  M
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900 text-sm sm:text-base">Mike Chen</p>
-                  <p className="text-gray-600 text-xs sm:text-sm">Founder, EcoFashion</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-shadow sm:col-span-2 lg:col-span-1">
-              <div className="flex items-center mb-4">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-500 fill-current" />
-                ))}
-              </div>
-              <p className="text-sm sm:text-base text-gray-700 mb-6">
-                "Scheduling content for 3 months in advance has been a game-changer. Our engagement has increased by 300%."
-              </p>
-              <div className="flex items-center">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-pink-600 rounded-full flex items-center justify-center text-white font-bold mr-3 sm:mr-4 text-sm sm:text-base">
-                  A
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900 text-sm sm:text-base">Alex Rodriguez</p>
-                  <p className="text-gray-600 text-xs sm:text-sm">CEO, FitnessFlow</p>
-                </div>
-              </div>
+            
+            {/* Navigation Arrows */}
+            <button
+              onClick={prevReview}
+              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white hover:bg-gray-50 text-gray-600 hover:text-gray-900 rounded-full p-3 shadow-lg transition-all"
+            >
+              <ArrowRight className="h-5 w-5 rotate-180" />
+            </button>
+            <button
+              onClick={nextReview}
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white hover:bg-gray-50 text-gray-600 hover:text-gray-900 rounded-full p-3 shadow-lg transition-all"
+            >
+              <ArrowRight className="h-5 w-5" />
+            </button>
+            
+            {/* Dots Indicator */}
+            <div className="flex justify-center mt-8 space-x-2">
+              {customerReviews.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => goToReview(index)}
+                  className={`w-3 h-3 rounded-full transition-all ${
+                    index === currentReviewIndex 
+                      ? 'bg-indigo-500' 
+                      : 'bg-gray-300 hover:bg-gray-400'
+                  }`}
+                />
+              ))}
             </div>
           </div>
         </div>
@@ -684,18 +921,19 @@ export default function Home() {
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
             <Link href="/signup" className="w-full sm:w-auto">
               <Button size="lg" className="w-full sm:w-auto text-sm sm:text-base lg:text-lg px-6 sm:px-8 py-3 sm:py-4 bg-white text-indigo-600 hover:bg-gray-50 h-12 sm:h-14">
-                Start Free Trial
+                Get Started
                 <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 ml-2" />
               </Button>
             </Link>
-            <Button 
-              variant="outline" 
-              size="lg" 
-              className="w-full sm:w-auto text-sm sm:text-base lg:text-lg px-6 sm:px-8 py-3 sm:py-4 h-12 sm:h-14 border-white text-white hover:bg-white hover:text-indigo-600"
-              onClick={() => setShowLoginForm(!showLoginForm)}
-            >
-              Sign In
-            </Button>
+            <Link href="/login" className="w-full sm:w-auto">
+              <Button 
+                variant="outline" 
+                size="lg" 
+                className="w-full sm:w-auto text-sm sm:text-base lg:text-lg px-6 sm:px-8 py-3 sm:py-4 h-12 sm:h-14 border-2 border-white text-white hover:bg-white hover:text-indigo-600 bg-transparent"
+              >
+                Sign In
+              </Button>
+            </Link>
           </div>
         </div>
       </section>
@@ -719,17 +957,16 @@ export default function Home() {
             <div>
               <h4 className="font-semibold text-white mb-3 sm:mb-4 text-sm sm:text-base">Product</h4>
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
-                <li><Link href="/features" className="hover:text-white transition-colors">Features</Link></li>
                 <li><Link href="/pricing" className="hover:text-white transition-colors">Pricing</Link></li>
-                <li><Link href="/integrations" className="hover:text-white transition-colors">Integrations</Link></li>
               </ul>
             </div>
             
             <div>
               <h4 className="font-semibold text-white mb-3 sm:mb-4 text-sm sm:text-base">Support</h4>
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
-                <li><Link href="/help" className="hover:text-white transition-colors">Help Center</Link></li>
+                <li><Link href="/tutorial" className="hover:text-white transition-colors">Tutorial</Link></li>
                 <li><Link href="/contact" className="hover:text-white transition-colors">Contact Us</Link></li>
+                <li><Link href="/help" className="hover:text-white transition-colors">Help Center</Link></li>
                 <li><Link href="/status" className="hover:text-white transition-colors">Status</Link></li>
               </ul>
             </div>
@@ -738,8 +975,10 @@ export default function Home() {
               <h4 className="font-semibold text-white mb-3 sm:mb-4 text-sm sm:text-base">Legal</h4>
               <ul className="space-y-2 text-xs sm:text-sm text-gray-400">
                 <li><Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
-                <li><Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link></li>
-                <li><Link href="/cookies" className="hover:text-white transition-colors">Cookie Policy</Link></li>
+                <li><Link href="/terms" className="hover:text-white transition-colors">Terms & Conditions</Link></li>
+                <li><Link href="/pricing-policy" className="hover:text-white transition-colors">Pricing Policy</Link></li>
+                <li><Link href="/shipping-policy" className="hover:text-white transition-colors">Shipping Policy</Link></li>
+                <li><Link href="/refund-policy" className="hover:text-white transition-colors">Cancellation & Refund</Link></li>
               </ul>
             </div>
           </div>

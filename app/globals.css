@@ -110,6 +110,33 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
+/* Mobile-specific improvements for better visibility */
+@media (max-width: 768px) {
+  /* Ensure text is visible on mobile */
+  input[type="text"], 
+  input[type="email"], 
+  input[type="password"], 
+  textarea {
+    color: #111827 !important;
+    background-color: #ffffff !important;
+  }
+  
+  /* Ensure buttons are visible on mobile */
+  button {
+    color: inherit !important;
+  }
+  
+  /* Ensure form labels are visible */
+  label {
+    color: #374151 !important;
+  }
+  
+  /* Ensure placeholder text is visible but not too prominent */
+  input::placeholder {
+    color: #6b7280 !important;
+  }
+}
+
 /* Content preview animations */
 .content-preview {
   transition: all 0.3s ease;

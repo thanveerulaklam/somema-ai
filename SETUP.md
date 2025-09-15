@@ -30,21 +30,21 @@ NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 
-# OpenAI Configuration (Required for AI features)
-NEXT_PUBLIC_OPENAI_API_KEY=your_openai_api_key_here
+# OpenAI Configuration (Required for AI features) - SERVER-SIDE ONLY
+OPENAI_API_KEY=your_openai_api_key_here
 
-# Anthropic Configuration (Optional - for Claude AI)
-NEXT_PUBLIC_ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# Anthropic Configuration (Optional - for Claude AI) - SERVER-SIDE ONLY
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-# Replicate Configuration (Optional - for Stable Diffusion)
+# Replicate Configuration (Optional - for Stable Diffusion) - SERVER-SIDE ONLY
 REPLICATE_API_KEY=your_replicate_api_key_here
 
 # Stripe Configuration (Optional - for payments)
 STRIPE_SECRET_KEY=your_stripe_secret_key_here
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
 
-# Canva Configuration (Optional - for templates)
-NEXT_PUBLIC_CANVA_API_KEY=your_canva_api_key_here
+# Canva Configuration (Optional - for templates) - SERVER-SIDE ONLY
+CANVA_API_KEY=your_canva_api_key_here
 ```
 
 ### 3. **Get API Keys**

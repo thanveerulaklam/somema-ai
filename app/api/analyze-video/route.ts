@@ -6,6 +6,8 @@ import { spawn } from 'child_process';
 import os from 'os';
 import Busboy from 'busboy';
 import { Readable } from 'stream';
+import { createClient } from '@supabase/supabase-js';
+import { shouldBypassCredits } from '../../../lib/admin-utils';
 
 // If you see a type error for 'busboy', run: npm install --save-dev @types/busboy
 // or add a declaration file: declare module 'busboy';
@@ -86,15 +88,26 @@ async function parseMultipartFormData(req: Request): Promise<{ videoPath: string
   });
 }
 
-async function analyzeFrame(frameBase64: string) {
+async function analyzeFrame(frameBase64: string, userId: string) {
   // Send the frame as a data URL to /api/analyze-image
   const dataUrl = `data:image/png;base64,${frameBase64}`;
   const response = await fetch(`${process.env.BASE_URL || 'http://localhost:3000'}/api/analyze-image`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageUrl: dataUrl })
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${userId}`
+    },
+    body: JSON.stringify({ 
+      imageUrl: dataUrl,
+      skipCredits: true // Skip credit deduction for individual frames
+    })
   });
   if (!response.ok) {
+    const errorData = await response.json();
+    // Pass through credit-related errors with their original message
+    if (response.status === 402) {
+      throw new Error(errorData.error || 'No post generation credits remaining. Please upgrade your plan or purchase more credits.');
+    }
     throw new Error('Failed to analyze frame');
   }
   const data = await response.json();
@@ -126,6 +139,84 @@ function aggregateAnalyses(analyses: any[]) {
 export async function POST(req: NextRequest) {
   try {
     console.log('[analyze-video] Starting video analysis');
+    
+    // Get user ID from authorization header
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) {
+      return NextResponse.json(
+        { error: 'Authorization header required' },
+        { status: 401 }
+      );
+    }
+
+    const userId = authHeader.replace('Bearer ', '');
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Invalid user ID' },
+        { status: 401 }
+      );
+    }
+
+    // Check if user is admin (bypass credits)
+    const bypassCredits = await shouldBypassCredits(userId);
+
+    // Check user's post generation credits
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    
+    if (!bypassCredits) {
+      // First, try to get user data without credit restrictions
+      let { data: userData, error: userDataError } = await supabase
+        .from('user_profiles')
+        .select('post_generation_credits, subscription_plan')
+        .eq('user_id', userId)
+        .single();
+
+      // If user doesn't exist in user_profiles table, create them with default credits
+      if (userDataError && userDataError.code === 'PGRST116') {
+        console.log('User not found in user_profiles table, creating with default credits...');
+        
+        const { data: newUserData, error: createError } = await supabase
+          .from('user_profiles')
+          .insert({
+            user_id: userId,
+            post_generation_credits: 3, // Default for free plan
+            subscription_plan: 'free'
+          })
+          .select('post_generation_credits, subscription_plan')
+          .single();
+
+        if (createError) {
+          console.error('❌ Error creating user profile:', createError);
+          return NextResponse.json({ 
+            error: 'No post generation credits remaining. Please upgrade your plan or purchase more credits.',
+            creditsRemaining: 0
+          }, { status: 402 });
+        }
+
+        userData = newUserData;
+        userDataError = null;
+      } else if (userDataError) {
+        console.error('Error fetching user credits:', userDataError);
+        return NextResponse.json({ 
+          error: 'No post generation credits remaining. Please upgrade your plan or purchase more credits.',
+          creditsRemaining: 0
+        }, { status: 402 });
+      }
+
+      const currentCredits = userData?.post_generation_credits || 0;
+      
+      if (currentCredits <= 0) {
+        return NextResponse.json({ 
+          error: 'No post generation credits remaining. Please upgrade your plan or purchase more credits.',
+          creditsRemaining: 0
+        }, { status: 402 });
+      }
+
+      console.log('✅ Credit check passed for video analysis. Credits available:', currentCredits);
+    } else {
+      console.log('👑 Admin user - bypassing credit check for video analysis');
+    }
+    
     // Parse the uploaded video file
     const { videoPath } = await parseMultipartFormData(req as any);
     console.log('[analyze-video] Video file saved at:', videoPath);
@@ -172,7 +263,7 @@ export async function POST(req: NextRequest) {
     const analyses = [];
     for (const frame of frameSubset) {
       try {
-        const analysis = await analyzeFrame(frame);
+        const analysis = await analyzeFrame(frame, userId);
         analyses.push(analysis);
       } catch (e) {
         console.error('[analyze-video] Failed to analyze frame:', e);
@@ -188,38 +279,41 @@ export async function POST(req: NextRequest) {
     // Generate content (caption, hashtags) using the existing content generation API
     // Construct a basic AIGenerationRequest (customize as needed)
     const aiRequest = {
-      businessContext: 'Video/Reel for social media', // You can pass real business info from the user
+      businessContext: 'Video/Reel for social media content creation and posting', // You can pass real business info from the user
       platform: 'instagram', // or 'facebook', 'twitter', etc.
       theme: 'reel',
       customPrompt: `This is a video/reel. The main visual content is: ${aggregated.caption}`,
-      tone: 'engaging',
+      tone: 'friendly',
       targetAudience: 'General audience',
       niche: 'General'
     };
 
-    // Call the content generation API for caption and hashtags
-    const [captionRes, hashtagsRes] = await Promise.all([
-      fetch(`${process.env.BASE_URL || 'http://localhost:3000'}/api/generate-content`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'caption', request: { ...aiRequest, customPrompt: aiRequest.customPrompt } })
-      }),
-      fetch(`${process.env.BASE_URL || 'http://localhost:3000'}/api/generate-content`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'hashtags', request: { ...aiRequest, customPrompt: aiRequest.customPrompt } })
-      })
-    ]);
-
+    // Call the combined video content generation API (deducts only 1 credit)
+    console.log('[analyze-video] Calling generate-video-content API with request:', aiRequest);
+    
+    const contentRes = await fetch(`${process.env.BASE_URL || 'http://localhost:3000'}/api/generate-video-content`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${userId}`
+      },
+      body: JSON.stringify({ request: { ...aiRequest, customPrompt: aiRequest.customPrompt } })
+    });
+    
+    console.log('[analyze-video] Video content generation response:', contentRes.status);
+    
     let caption = '';
     let hashtags = [];
-    if (captionRes.ok) {
-      const data = await captionRes.json();
-      caption = data.result;
-    }
-    if (hashtagsRes.ok) {
-      const data = await hashtagsRes.json();
-      hashtags = data.result;
+    
+    if (contentRes.ok) {
+      const data = await contentRes.json();
+      caption = data.result.caption;
+      hashtags = data.result.hashtags;
+      console.log('[analyze-video] Generated caption:', caption);
+      console.log('[analyze-video] Generated hashtags:', hashtags);
+    } else {
+      const errorData = await contentRes.json();
+      console.error('[analyze-video] Content generation failed:', errorData);
     }
 
     return NextResponse.json({

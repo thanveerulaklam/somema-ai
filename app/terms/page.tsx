@@ -26,13 +26,13 @@ export default function TermsOfService() {
             
             <h2 className="text-xl font-semibold text-gray-900 mt-8 mb-4">Acceptance of Terms</h2>
             <p className="text-gray-700 mb-4">
-              By accessing and using Somema AI, you accept and agree to be bound by the terms 
+              By accessing and using Quely.ai, you accept and agree to be bound by the terms 
               and provision of this agreement. If you do not agree to these terms, please do not use our service.
             </p>
             
             <h2 className="text-xl font-semibold text-gray-900 mt-8 mb-4">Service Description</h2>
             <p className="text-gray-700 mb-4">
-              Somema AI is a social media management platform that provides AI-powered content generation, 
+              Quely.ai is a social media management platform that provides AI-powered content generation, 
               scheduling, and publishing tools for Facebook Pages and Instagram Business accounts.
             </p>
             
@@ -99,13 +99,13 @@ export default function TermsOfService() {
             
             <h2 className="text-xl font-semibold text-gray-900 mt-8 mb-4">Limitation of Liability</h2>
             <p className="text-gray-700 mb-4">
-              To the maximum extent permitted by law, Somema AI shall not be liable for any indirect, 
+              To the maximum extent permitted by law, Quely.ai shall not be liable for any indirect, 
               incidental, special, consequential, or punitive damages arising from your use of our service.
             </p>
             
             <h2 className="text-xl font-semibold text-gray-900 mt-8 mb-4">Indemnification</h2>
             <p className="text-gray-700 mb-4">
-              You agree to indemnify and hold harmless Somema AI from any claims, damages, or expenses 
+              You agree to indemnify and hold harmless Quely.ai from any claims, damages, or expenses 
               arising from your use of our service or violation of these terms.
             </p>
             
@@ -132,9 +132,9 @@ export default function TermsOfService() {
               If you have any questions about these Terms and Conditions, please contact us at:
             </p>
             <ul className="list-none pl-6 text-gray-700 mb-4">
-              <li><strong>Email:</strong> legal@somema.ai</li>
-              <li><strong>Support:</strong> support@somema.ai</li>
-              <li><strong>Website:</strong> https://somema.ai</li>
+              <li><strong>Email:</strong> info@mzonetechnologies.com</li>
+              <li><strong>Support:</strong> info@mzonetechnologies.com</li>
+              <li><strong>Website:</strong> https://quely.ai</li>
             </ul>
           </div>
         </div>

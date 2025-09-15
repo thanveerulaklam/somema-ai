@@ -64,7 +64,7 @@ export default function GeneratePage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
-  // Fetch user profile data from user_profiles table on component mount
+  // Fetch user profile data and load media library on component mount
   useEffect(() => {
     const fetchUserProfile = async () => {
       try {
@@ -77,6 +77,9 @@ export default function GeneratePage() {
             .single()
           
           setUserProfile(profile)
+          
+          // Load media library after user profile is fetched
+          await loadMediaLibrary()
         }
       } catch (error) {
         console.error('Error fetching user profile:', error)
@@ -121,8 +124,15 @@ export default function GeneratePage() {
       if (isHeic) {
         console.log('🔄 Converting HEIC to JPEG using heic2any...')
         try {
-          // Import heic2any dynamically
-          const heic2any = (await import('heic2any')).default
+          // Import heic2any dynamically with better error handling
+          let heic2any;
+          try {
+            const heic2anyModule = await import('heic2any');
+            heic2any = heic2anyModule.default;
+          } catch (importError) {
+            console.error('❌ Failed to import heic2any:', importError);
+            throw new Error('HEIC conversion library not available');
+          }
           
           // Convert HEIC to JPEG
           const jpegBlob = await heic2any({
@@ -134,11 +144,18 @@ export default function GeneratePage() {
           // Create new file with JPEG content
           const jpegFileName = file.name.replace(/\.(heic|heif)$/i, '.jpg')
           fileToProcess = new Blob([jpegBlob], { type: 'image/jpeg' }) as File
-          // Set the name property manually
-          Object.defineProperty(fileToProcess, 'name', {
-            value: jpegFileName,
-            writable: false
-          })
+          
+          // Set the name property manually with better error handling
+          try {
+            Object.defineProperty(fileToProcess, 'name', {
+              value: jpegFileName,
+              writable: false
+            })
+          } catch (propertyError) {
+            console.warn('⚠️ Could not set file name property:', propertyError)
+            // Create a new File object as fallback
+            fileToProcess = new (File as any)([jpegBlob], jpegFileName, { type: 'image/jpeg' })
+          }
           
           console.log('✅ HEIC converted to JPEG successfully')
           console.log('   - Original size:', file.size, 'bytes')
@@ -267,8 +284,14 @@ export default function GeneratePage() {
           const blob = await res.blob()
           formData.append('file', new File([blob], selectedMediaItem.file_name, { type: selectedMediaItem.mime_type }))
         }
+        // Get user for Authorization header
+        const { data: { user } } = await supabase.auth.getUser();
+        
         const response = await fetch('/api/analyze-video', {
           method: 'POST',
+          headers: {
+            ...(user?.id ? { 'Authorization': `Bearer ${user.id}` } : {})
+          },
           body: formData
         })
         if (!response.ok) throw new Error('Failed to analyze video')
@@ -276,7 +299,7 @@ export default function GeneratePage() {
         analysis = data.aggregated_analysis
         // Use generated caption/hashtags if available
         if (data.generated) {
-          setGeneratedContent({
+          const generatedContent: GeneratedContent = {
             caption: data.generated.caption,
             hashtags: data.generated.hashtags,
             textElements: {
@@ -284,12 +307,89 @@ export default function GeneratePage() {
               subtext: 'Generated for your video',
               cta: 'Watch Now'
             }
-          })
+          }
+          setGeneratedContent(generatedContent)
+
+          // Automatically open the poster editor for videos
+          if (userProfile) {
+            const postData = {
+              imageUrl: finalMediaUrl,
+              caption: generatedContent.caption,
+              hashtags: generatedContent.hashtags,
+              textElements: generatedContent.textElements,
+              businessContext: userProfile.business_name || 'our business',
+              platform: 'instagram',
+              theme: 'product'
+            }
+            
+            // Save post data to Supabase and redirect to editor
+            try {
+              const { data: { user } } = await supabase.auth.getUser()
+              if (user) {
+                const postDataToInsert = {
+                  user_id: user.id,
+                  caption: generatedContent.caption,
+                  hashtags: generatedContent.hashtags,
+                  platform: 'instagram',
+                  status: 'draft',
+                  content_type: 'product',
+                  text_elements: generatedContent.textElements,
+                  business_context: userProfile.business_name || 'our business',
+                  theme: 'product',
+                  media_url: finalMediaUrl
+                }
+                
+                console.log('Attempting to insert video post data:', postDataToInsert)
+                
+                const { data: savedPost, error } = await supabase
+                  .from('posts')
+                  .insert(postDataToInsert)
+                  .select()
+                  .single()
+
+                if (error) {
+                  console.error('Error saving video post to Supabase:', error)
+                  throw error
+                }
+
+                console.log('Video post saved to Supabase:', savedPost)
+                router.push(`/posts/editor?postId=${(savedPost as any).id}`)
+                return
+              }
+            } catch (error) {
+              console.error('Failed to save video post to Supabase:', error)
+              // Fallback to localStorage if Supabase fails
+              localStorage.setItem('postEditorData', JSON.stringify(postData))
+              router.push(`/posts/editor`)
+              return
+            }
+          } else {
+            // If no user profile, save to localStorage and redirect
+            const postData = {
+              imageUrl: finalMediaUrl,
+              caption: generatedContent.caption,
+              hashtags: generatedContent.hashtags,
+              textElements: generatedContent.textElements,
+              businessContext: 'our business',
+              platform: 'instagram',
+              theme: 'product'
+            }
+            localStorage.setItem('postEditorData', JSON.stringify(postData))
+            router.push(`/posts/editor`)
+            return
+          }
         }
       } else {
         // Existing image analysis logic
         console.log('Starting CLIP analysis for image:', finalMediaUrl.substring(0, 100) + '...')
-        analysis = await analyzeImageWithCLIP(finalMediaUrl)
+        
+        // Get user for authorization
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          throw new Error('User not authenticated')
+        }
+        
+        analysis = await analyzeImageWithCLIP(finalMediaUrl, `Bearer ${user.id}`)
         console.log('CLIP Analysis Results:', analysis)
         setImageAnalysis(analysis)
 
@@ -534,9 +634,7 @@ export default function GeneratePage() {
       if (error) throw error
 
       setError('Post saved successfully!')
-      setTimeout(() => {
-        router.push('/posts')
-      }, 2000)
+      router.push('/dashboard')
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -545,7 +643,7 @@ export default function GeneratePage() {
   }
 
     return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-purple-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
@@ -560,7 +658,7 @@ export default function GeneratePage() {
         </div>
             
             <div className="flex items-center">
-              <Sparkles className="h-6 w-6 text-blue-600 mr-2" />
+              <Sparkles className="h-6 w-6 text-purple-600 mr-2" />
               <h1 className="text-lg sm:text-xl font-semibold text-gray-900">
                 Instagram Post Generator
               </h1>
@@ -581,46 +679,41 @@ export default function GeneratePage() {
           <div className="space-y-4 sm:space-y-6">
             <div>
               <h3 className="text-base sm:text-lg font-medium text-gray-900">Add Your Product Photo</h3>
-              <p className="text-xs sm:text-sm text-gray-600">Upload a new image or select from your media library</p>
+                              <p className="text-xs sm:text-sm text-gray-600">Select from your validated media library</p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-              <button
-                onClick={() => setShowMediaLibrary(false)}
-                className={`px-4 py-2 rounded-lg border transition-colors ${
-                  !showMediaLibrary
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                <Upload className="h-4 w-4 mr-2 inline" />
-                Upload New
-              </button>
-              <button
-                onClick={() => {
-                  setShowMediaLibrary(true)
-                  loadMediaLibrary()
-                }}
-                className={`px-4 py-2 rounded-lg border transition-colors ${
-                  showMediaLibrary
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                <ImageIcon className="h-4 w-4 mr-2 inline" />
-                Media Library
-              </button>
+            <div className="flex items-center space-x-2">
+              <ImageIcon className="h-5 w-5 text-purple-600" />
+              <h4 className="text-md font-medium text-gray-900">Select from Media Library</h4>
             </div>
-            {showMediaLibrary ? (
-              <div className="space-y-4">
-                <h4 className="text-md font-medium text-gray-900">Select from Media Library</h4>
-                <div className="grid grid-cols-3 gap-4 max-h-64 overflow-y-auto">
-                  {mediaLibrary.map((item) => (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">Select from your validated media library</p>
+                <button
+                  onClick={loadMediaLibrary}
+                  className="text-purple-600 hover:text-purple-700 text-sm font-medium flex items-center"
+                >
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  Refresh
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-4 max-h-64 overflow-y-auto">
+                {mediaLibrary.length === 0 ? (
+                  <div className="col-span-3 text-center py-8">
+                    <ImageIcon className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+                    <p className="text-gray-600 text-sm">No media files found</p>
+                    <p className="text-gray-500 text-xs mt-1">Upload files to your media library first</p>
+                    <Link href="/media" className="inline-block mt-3 text-purple-600 hover:text-purple-700 text-sm font-medium">
+                      Go to Media Library →
+                    </Link>
+                  </div>
+                ) : (
+                  mediaLibrary.map((item) => (
                     <div
                       key={item.id}
                       onClick={() => handleMediaSelect(item)}
                       className={`relative cursor-pointer rounded-lg border-2 transition-colors ${
                         selectedMediaItem?.id === item.id
-                          ? 'border-blue-500 bg-blue-50'
+                          ? 'border-purple-500 bg-gradient-to-r from-purple-50 to-blue-50'
                           : 'border-gray-300 hover:border-gray-400'
                       }`}
                     >
@@ -649,68 +742,38 @@ export default function GeneratePage() {
                         </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <h4 className="text-md font-medium text-gray-900">Upload New Image</h4>
-                {!selectedFile ? (
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-gray-400 transition-colors"
-                  >
-                    <Upload className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                    <p className="text-gray-600">Click to upload or drag and drop</p>
-                    <p className="text-sm text-gray-500">PNG, JPG, GIF, HEIC, MP4 up to 10MB</p>
-                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="flex items-start space-x-2">
-                        <svg className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div className="text-xs text-blue-800">
-                          <p className="font-medium">Instagram Reels Audio Requirement</p>
-                          <p>Videos posted to Instagram must have audio. Videos without sound will be rejected.</p>
-                        </div>
-                      </div>
-                    </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*,image/heic,image/heif,video/*"
-                      onChange={handleFileSelect}
-                      className="hidden"
-                    />
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="relative">
-                      {isVideoFile(selectedFile, selectedMediaItem) ? (
-                        <video
-                          src={previewUrl}
-                          controls
-                          autoPlay
-                          className="w-full h-64 object-cover rounded-lg"
-                        />
-                      ) : (
-                        <img
-                          src={previewUrl}
-                          alt="Preview"
-                          className="w-full h-64 object-cover rounded-lg"
-                        />
-                      )}
-                      <button
-                        onClick={() => {
-                          setSelectedFile(null)
-                          setPreviewUrl('')
-                        }}
-                        className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
+                  ))
                 )}
+              </div>
+            </div>
+            {selectedMediaItem && (
+              <div className="space-y-4">
+                <h4 className="text-md font-medium text-gray-900">Selected Media</h4>
+                <div className="relative">
+                  {isVideoFile(selectedFile, selectedMediaItem) ? (
+                    <video
+                      src={selectedMediaItem.file_path}
+                      controls
+                      autoPlay
+                      className="w-full h-64 object-cover rounded-lg"
+                    />
+                  ) : (
+                    <img
+                      src={selectedMediaItem.file_path}
+                      alt="Preview"
+                      className="w-full h-64 object-cover rounded-lg"
+                    />
+                  )}
+                  <button
+                    onClick={() => {
+                      setSelectedMediaItem(null)
+                      setPreviewUrl('')
+                    }}
+                    className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             )}
             {/* Generate Post Button */}

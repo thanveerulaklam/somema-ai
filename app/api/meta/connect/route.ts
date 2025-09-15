@@ -47,17 +47,48 @@ export async function GET(request: NextRequest) {
     if (storedPages.length === 0) {
       console.log('No stored pages found, fetching from Meta API...')
       const metaService = createMetaAPIService({ accessToken: metaCreds.accessToken })
-      facebookPagesRaw = await metaService.getFacebookPages()
-      const facebookPages = facebookPagesRaw
-      pagesWithInstagram = await Promise.all(
-        facebookPages.map(async (page: any) => {
-          const instagramAccounts = await metaService.getInstagramAccounts(page.id)
-          return {
-            ...page,
-            instagram_accounts: instagramAccounts
+      
+      try {
+        // Get all Facebook pages with pagination
+        facebookPagesRaw = await metaService.getFacebookPages()
+        console.log(`✅ Fetched ${facebookPagesRaw.length} Facebook pages`)
+        
+        // Get Instagram accounts for each page
+        pagesWithInstagram = await Promise.all(
+          facebookPagesRaw.map(async (page: any) => {
+            console.log(`Getting Instagram accounts for page: ${page.name} (${page.id})`)
+            const instagramAccounts = await metaService.getInstagramAccounts(page.id)
+            return {
+              ...page,
+              instagram_accounts: instagramAccounts
+            }
+          })
+        )
+        
+        console.log(`✅ Processed ${pagesWithInstagram.length} pages with Instagram accounts`)
+      } catch (error: any) {
+        console.error('Error fetching from Meta API:', error)
+        // Fallback to basic page fetch
+        try {
+          const response = await fetch(`https://graph.facebook.com/v18.0/me/accounts?fields=id,name,category,category_list,tasks,access_token&access_token=${metaCreds.accessToken}&limit=100`)
+          const data = await response.json()
+          
+          if (!data.error && data.data) {
+            facebookPagesRaw = data.data
+            pagesWithInstagram = await Promise.all(
+              facebookPagesRaw.map(async (page: any) => {
+                const instagramAccounts = await metaService.getInstagramAccounts(page.id)
+                return {
+                  ...page,
+                  instagram_accounts: instagramAccounts
+                }
+              })
+            )
           }
-        })
-      )
+        } catch (fallbackError) {
+          console.error('Fallback fetch also failed:', fallbackError)
+        }
+      }
     }
     // Return both available and connected
     return NextResponse.json({
@@ -95,12 +126,8 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       )
     }
-    // Add to connected list
-    const connected = metaCreds.connected || []
-    // Prevent duplicates
-    if (!connected.some((c: any) => c.pageId === pageId && c.instagramId === instagramId)) {
-      connected.push({ pageId, instagramId })
-    }
+    // Replace all existing connections with the new one (single connection only)
+    const connected = [{ pageId, instagramId }]
     // Update DB
     const { error: updateError } = await supabase
       .from('user_profiles')
@@ -160,6 +187,63 @@ export async function DELETE(request: NextRequest) {
     console.error('Meta disconnect error:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to disconnect page/account' },
+      { status: 500 }
+    )
+  }
+} 
+
+export async function PATCH(request: NextRequest) {
+  try {
+    // Get user from request headers
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader) {
+      return NextResponse.json(
+        { error: 'Authorization header required' },
+        { status: 401 }
+      )
+    }
+    const userId = authHeader.replace('Bearer ', '')
+    
+    // Get current meta_credentials
+    const metaCreds = await getUserMetaCredentials(userId)
+    if (!metaCreds?.accessToken) {
+      return NextResponse.json(
+        { error: 'Meta account not connected' },
+        { status: 404 }
+      )
+    }
+    
+    // Clean up: if there are multiple connections, keep only the first one
+    const connected = metaCreds.connected || []
+    
+    let cleanedConnected = connected
+    if (connected.length > 1) {
+      // Keep only the first connection
+      cleanedConnected = [connected[0]]
+      
+      // Update DB with cleaned connections
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ meta_credentials: { ...metaCreds, connected: cleanedConnected } })
+        .eq('user_id', userId)
+      
+      if (updateError) {
+        return NextResponse.json(
+          { error: 'Failed to clean up connections' },
+          { status: 500 }
+        )
+      }
+    }
+    
+    return NextResponse.json({ 
+      success: true, 
+      connected: cleanedConnected,
+      message: connected.length > 1 ? `Cleaned up ${connected.length} connections to single connection` : 'No cleanup needed'
+    })
+  } catch (error: any) {
+    console.error('Meta cleanup error:', error)
+    return NextResponse.json(
+      { error: error.message || 'Failed to clean up connections' },
       { status: 500 }
     )
   }

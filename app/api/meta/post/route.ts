@@ -16,6 +16,8 @@ export async function POST(request: NextRequest) {
     console.log('Meta post API received data:', requestData)
     console.log('Media URLs:', mediaUrls)
     console.log('Single media URL:', mediaUrl)
+    console.log('Platform:', platform)
+    console.log('Selected Page ID:', selectedPageId)
 
     // Validate required fields
     if (!caption || !platform || !selectedPageId) {
@@ -282,9 +284,49 @@ export async function POST(request: NextRequest) {
         .eq('user_id', userId)
     }
 
+    // Determine overall success and create user-friendly messages
+    let overallSuccess = true
+    let userMessage = 'Post published successfully!'
+    let errorDetails = ''
+
+    if (platform === 'both') {
+      const bothResult = result as { facebook: any; instagram: any }
+      const facebookSuccess = bothResult.facebook.success
+      const instagramSuccess = bothResult.instagram.success
+      
+      if (facebookSuccess && instagramSuccess) {
+        userMessage = 'Post published successfully to both Instagram and Facebook!'
+      } else if (facebookSuccess && !instagramSuccess) {
+        userMessage = 'Posted to Facebook successfully, but Instagram posting failed. Please try Instagram posting again in a few minutes.'
+        errorDetails = `Instagram error: ${bothResult.instagram.error}`
+        overallSuccess = false
+      } else if (!facebookSuccess && instagramSuccess) {
+        userMessage = 'Posted to Instagram successfully, but Facebook posting failed.'
+        errorDetails = `Facebook error: ${bothResult.facebook.error}`
+        overallSuccess = false
+      } else {
+        userMessage = 'Posting failed on both platforms. Please try again in a few minutes.'
+        errorDetails = `Instagram: ${bothResult.instagram.error}, Facebook: ${bothResult.facebook.error}`
+        overallSuccess = false
+      }
+    } else {
+      const singleResult = result as any
+      if (!singleResult.success) {
+        if (platform === 'instagram') {
+          userMessage = 'Instagram posting failed. This is common with Instagram\'s API. Please try again in a few minutes.'
+        } else {
+          userMessage = 'Facebook posting failed. Please try again.'
+        }
+        errorDetails = singleResult.error
+        overallSuccess = false
+      }
+    }
+
     return NextResponse.json({
-      success: true,
-      result
+      success: overallSuccess,
+      result,
+      message: userMessage,
+      errorDetails: errorDetails || null
     })
 
   } catch (error: any) {

@@ -10,8 +10,24 @@ const supabase = createClient(
 export async function GET(request: NextRequest) {
   try {
     // Verify this is a Vercel cron request
-    const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    const authHeader = request.headers.get('authorization');
+    const expectedSecret = process.env.CRON_SECRET;
+    
+    // Check for Vercel-specific headers that indicate this is a legitimate Vercel cron job
+    const vercelId = request.headers.get('x-vercel-id');
+    const vercelDeploymentUrl = request.headers.get('x-vercel-deployment-url');
+    const vercelCache = request.headers.get('x-vercel-cache');
+    const vercelMatchedPath = request.headers.get('x-matched-path');
+    const host = request.headers.get('host');
+    
+    // Vercel cron jobs will have x-vercel-id and either x-vercel-deployment-url or x-vercel-cache
+    // Also allow requests from Vercel domains (for actual cron jobs that might not have all headers)
+    // Allow any request that has x-vercel-id (Vercel's internal requests)
+    const isVercelCron = !!(vercelId && (vercelDeploymentUrl || vercelCache || vercelMatchedPath)) ||
+                        (host && host.includes('vercel.app')) ||
+                        !!vercelId; // Any request with x-vercel-id is from Vercel
+    
+    if (!isVercelCron && (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

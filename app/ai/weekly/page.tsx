@@ -56,6 +56,7 @@ export default function WeeklyPage() {
   const [showEnhancedImages, setShowEnhancedImages] = useState<{ [postId: string]: { [imageIndex: number]: boolean } }>({})
   const [contentGenerated, setContentGenerated] = useState(false)
   const [modalSelectedImages, setModalSelectedImages] = useState<any[]>([])
+  const [defaultTime, setDefaultTime] = useState('11:00')
   
   const router = useRouter()
 
@@ -176,6 +177,14 @@ export default function WeeklyPage() {
         const generatedPost = data.generatedPosts.find((gp: any) => gp.dayKey === dayKey)
         
         if (generatedPost) {
+            // Use the actual date from upcomingWeekDays instead of calculating next week
+            const actualDate = upcomingWeekDays[index]?.dateObj
+            if (actualDate) {
+              // Set the time from defaultTime
+              const [hours, minutes] = defaultTime.split(':').map(Number)
+              actualDate.setHours(hours, minutes, 0, 0)
+            }
+            
             return {
               ...post,
             theme: generatedPost.theme,
@@ -185,7 +194,7 @@ export default function WeeklyPage() {
             status: 'generated' as const,
             selectedImage: generatedPost.selectedImages[0],
             selectedImages: generatedPost.selectedImages, // <-- use backend array
-            scheduledFor: generatedPost.scheduledFor
+            scheduledFor: actualDate ? actualDate.toISOString() : getNextWeekDate(post.day, defaultTime)
             }
           }
 
@@ -267,8 +276,19 @@ export default function WeeklyPage() {
         .map(post => {
           // Determine if this is a carousel post
           const isCarousel = post.selectedImages && post.selectedImages.length > 1
-          const mediaUrls = isCarousel ? post.selectedImages!.map(img => img.file_path) : []
-          const mediaUrl = isCarousel ? post.selectedImages![0].file_path : post.selectedImage?.file_path
+          
+          // Use enhanced images if available, otherwise use original images
+          const mediaUrls = isCarousel 
+            ? post.selectedImages!.map((img, idx) => {
+                // Check if there's an enhanced image for this index
+                const enhancedImage = enhancedImages[post.id]?.[idx]
+                return enhancedImage || img.file_path
+              })
+            : []
+          
+          const mediaUrl = isCarousel 
+            ? (enhancedImages[post.id]?.[0] || post.selectedImages![0].file_path)
+            : (enhancedImages[post.id]?.[0] || post.selectedImage?.file_path)
           
           return {
             user_id: user.id,
@@ -279,6 +299,7 @@ export default function WeeklyPage() {
             scheduled_for: post.scheduledFor || getNextWeekDate(post.day),
             media_url: mediaUrl,
             media_urls: mediaUrls,
+            enhanced_image_url: isCarousel ? (enhancedImages[post.id]?.[0] || null) : (enhancedImages[post.id]?.[0] || null),
             theme: post.theme,
             content_type: 'weekly',
             business_context: `Day: ${post.day}, Image Prompt: ${post.imagePrompt}`
@@ -297,9 +318,7 @@ export default function WeeklyPage() {
       if (error) throw error
 
       setSuccess('Weekly content saved successfully!')
-      setTimeout(() => {
-        router.push('/calendar')
-      }, 2000)
+      router.push('/dashboard')
     } catch (error: any) {
       setError(error.message)
     } finally {
@@ -321,8 +340,19 @@ export default function WeeklyPage() {
         .map(post => {
           // Determine if this is a carousel post
           const isCarousel = post.selectedImages && post.selectedImages.length > 1
-          const mediaUrls = isCarousel ? post.selectedImages!.map(img => img.file_path) : []
-          const mediaUrl = isCarousel ? post.selectedImages![0].file_path : post.selectedImage?.file_path
+          
+          // Use enhanced images if available, otherwise use original images
+          const mediaUrls = isCarousel 
+            ? post.selectedImages!.map((img, idx) => {
+                // Check if there's an enhanced image for this index
+                const enhancedImage = enhancedImages[post.id]?.[idx]
+                return enhancedImage || img.file_path
+              })
+            : []
+          
+          const mediaUrl = isCarousel 
+            ? (enhancedImages[post.id]?.[0] || post.selectedImages![0].file_path)
+            : (enhancedImages[post.id]?.[0] || post.selectedImage?.file_path)
           
           return {
             user_id: user.id,
@@ -333,6 +363,7 @@ export default function WeeklyPage() {
             scheduled_for: post.scheduledFor || getNextWeekDate(post.day),
             media_url: mediaUrl,
             media_urls: mediaUrls,
+            enhanced_image_url: isCarousel ? (enhancedImages[post.id]?.[0] || null) : (enhancedImages[post.id]?.[0] || null),
             theme: post.theme,
             content_type: 'weekly',
             business_context: `Day: ${post.day}, Image Prompt: ${post.imagePrompt}`
@@ -361,7 +392,7 @@ export default function WeeklyPage() {
     }
   }
 
-  const getNextWeekDate = (dayName: string) => {
+  const getNextWeekDate = (dayName: string, time: string = '11:00') => {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
     const today = new Date()
     const targetDay = days.indexOf(dayName)
@@ -369,6 +400,11 @@ export default function WeeklyPage() {
     const daysToAdd = (targetDay - currentDay + 7) % 7
     const nextWeekDate = new Date(today)
     nextWeekDate.setDate(today.getDate() + daysToAdd + 7) // Next week
+    
+    // Parse time and set hours/minutes
+    const [hours, minutes] = time.split(':').map(Number)
+    nextWeekDate.setHours(hours, minutes, 0, 0)
+    
     return nextWeekDate.toISOString()
   }
 
@@ -396,7 +432,7 @@ export default function WeeklyPage() {
     setEditingPost(postId)
     setEditCaption(caption)
     setEditHashtags(hashtags.join(' '))
-    setEditScheduledFor(scheduledFor ? new Date(scheduledFor).toISOString().slice(0, 16) : '')
+    setEditScheduledFor(scheduledFor ? new Date(scheduledFor).toISOString().slice(0, 16) : null)
   }
 
   const saveEdit = (postId: string) => {
@@ -438,6 +474,68 @@ export default function WeeklyPage() {
     return `${day}, ${month} ${dayNum}, ${year} at ${hours}:${minutes}`;
   }
 
+  // Helper function to format date and time consistently
+  const formatDateTime = (date: Date): string => {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const day = dayNames[date.getDay()];
+    const month = monthNames[date.getMonth()];
+    const dayNum = date.getDate();
+    const year = date.getFullYear();
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${day}, ${month} ${dayNum}, ${year} at ${hours}:${minutes}`;
+  }
+
+  // Update all posts with new default time
+  const updateAllPostTimes = (newTime: string) => {
+    setPosts(prevPosts => 
+      prevPosts.map((post, index) => {
+        // Use the actual date from upcomingWeekDays
+        const actualDate = upcomingWeekDays[index]?.dateObj
+        if (actualDate) {
+          const [hours, minutes] = newTime.split(':').map(Number)
+          actualDate.setHours(hours, minutes, 0, 0)
+          return {
+            ...post,
+            scheduledFor: actualDate.toISOString()
+          }
+        }
+        // Fallback to old method if no actual date
+        return {
+          ...post,
+          scheduledFor: getNextWeekDate(post.day, newTime)
+        }
+      })
+    )
+  }
+
+  // Update individual post time
+  const updatePostTime = (postId: string, newTime: string) => {
+    setPosts(prevPosts => 
+      prevPosts.map((post, index) => {
+        if (post.id === postId) {
+          // Use the actual date from upcomingWeekDays
+          const actualDate = upcomingWeekDays[index]?.dateObj
+          if (actualDate) {
+            const [hours, minutes] = newTime.split(':').map(Number)
+            actualDate.setHours(hours, minutes, 0, 0)
+            return {
+              ...post,
+              scheduledFor: actualDate.toISOString()
+            }
+          }
+          // Fallback to old method if no actual date
+          return {
+            ...post,
+            scheduledFor: getNextWeekDate(post.day, newTime)
+          }
+        }
+        return post
+      })
+    )
+  }
+
   const handleEnhanceImage = async (postId: string, imageUrl: string, caption: string, imageIndex: number) => {
     setEnhancingImage(prev => ({ 
       ...prev, 
@@ -469,6 +567,12 @@ export default function WeeklyPage() {
         imageFile = new File([blob], 'image.jpg', { type: blob.type })
       }
 
+      // Get user for authorization
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
       // Create FormData and send file directly
       const formData = new FormData()
       formData.append('image', imageFile)
@@ -476,6 +580,9 @@ export default function WeeklyPage() {
 
       const response = await fetch('/api/enhance-image', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.id}`
+        },
         body: formData
       })
 
@@ -501,6 +608,13 @@ export default function WeeklyPage() {
       }))
       
       console.log('Image enhanced successfully:', data.enhancedImageUrl)
+      
+      // Show success message with remaining credits
+      if (data.creditsRemaining !== undefined) {
+        setSuccess(`Image enhanced successfully! ${data.creditsRemaining} enhancement credits remaining.`)
+        // Clear success message after 3 seconds
+        setTimeout(() => setSuccess(''), 3000)
+      }
     } catch (error: any) {
       console.error('Error enhancing image:', error)
       setError(error.message || 'Failed to enhance image')
@@ -541,7 +655,7 @@ export default function WeeklyPage() {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     
-    for (let i = 0; i < 7; i++) {
+    for (let i = 1; i <= 7; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
       const dayName = dayNames[d.getDay()];
@@ -599,7 +713,16 @@ export default function WeeklyPage() {
                     <div className="relative group image-selected flex flex-wrap gap-1 justify-center">
                       {imageSelections[day + date].map((img, idx) => (
                         <div key={img.id} className="relative">
-                          <img src={img.file_path} alt={day} className="w-12 h-12 object-cover rounded shadow mb-1" />
+                          {img.mime_type && img.mime_type.startsWith('video/') ? (
+                            <video
+                              src={img.file_path}
+                              className="w-12 h-12 object-cover rounded shadow mb-1"
+                              muted
+                              playsInline
+                            />
+                          ) : (
+                            <img src={img.file_path} alt={day} className="w-12 h-12 object-cover rounded shadow mb-1" />
+                          )}
                     <button
                             className="absolute top-0 right-0 bg-white bg-opacity-80 rounded-full p-0.5 text-red-500 hover:text-red-700 text-xs"
                             onClick={() => setImageSelections((prev) => ({
@@ -691,7 +814,16 @@ export default function WeeklyPage() {
                   <div className="flex flex-wrap gap-2">
                     {modalSelectedImages.map((img, idx) => (
                       <div key={img.id} className="relative">
-                        <img src={img.file_path} alt={img.file_name} className="w-12 h-12 object-cover rounded" />
+                        {img.mime_type && img.mime_type.startsWith('video/') ? (
+                          <video
+                            src={img.file_path}
+                            className="w-12 h-12 object-cover rounded"
+                            muted
+                            playsInline
+                          />
+                        ) : (
+                          <img src={img.file_path} alt={img.file_name} className="w-12 h-12 object-cover rounded" />
+                        )}
                         <button
                           onClick={() => setModalSelectedImages(prev => prev.filter((_, i) => i !== idx))}
                           className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
@@ -710,12 +842,12 @@ export default function WeeklyPage() {
                 <div className="text-red-500">{mediaError}</div>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 max-h-96 overflow-y-auto">
-                  {Array.isArray(media) && media.filter(m => m && m.mime_type && m.mime_type.startsWith('image/')).map((item) => {
+                  {Array.isArray(media) && media.filter(m => m && m.mime_type && (m.mime_type.startsWith('image/') || m.mime_type.startsWith('video/'))).map((item) => {
                     const isSelected = modalSelectedImages.some(img => img.id === item.id)
                     return (
                       <button
                         key={item.id}
-                        className={`focus:outline-none border-2 rounded overflow-hidden transition-all ${
+                        className={`focus:outline-none border-2 rounded overflow-hidden transition-all relative ${
                           isSelected 
                             ? 'border-blue-500 bg-blue-50' 
                             : 'border-transparent hover:border-blue-300'
@@ -728,7 +860,15 @@ export default function WeeklyPage() {
                           }
                         }}
                       >
-                        <img src={item.file_path} alt={item.file_name} className="w-full h-20 object-cover" />
+                        {item.mime_type && item.mime_type.startsWith('video/') ? (
+                          <video
+                            src={item.file_path}
+                            className="w-full h-20 object-cover"
+                            muted
+                          />
+                        ) : (
+                          <img src={item.file_path} alt={item.file_name} className="w-full h-20 object-cover" />
+                        )}
                         {isSelected && (
                           <div className="absolute top-1 right-1 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">
                             ✓
@@ -737,8 +877,8 @@ export default function WeeklyPage() {
                       </button>
                     )
                   })}
-                  {(!Array.isArray(media) || (Array.isArray(media) && media.filter(m => m && m.mime_type && m.mime_type.startsWith('image/')).length === 0)) && (
-                    <div className="col-span-full text-gray-500">No images found in your media library.</div>
+                  {(!Array.isArray(media) || (Array.isArray(media) && media.filter(m => m && m.mime_type && (m.mime_type.startsWith('image/') || m.mime_type.startsWith('video/'))).length === 0)) && (
+                    <div className="col-span-full text-gray-500">No media found in your media library.</div>
                   )}
                 </div>
               )}
@@ -777,23 +917,37 @@ export default function WeeklyPage() {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-medium text-gray-900">Weekly Content Preview</h2>
             {posts.some(p => p.status === 'generated') && (
-              <div className="flex gap-3">
-              <Button
-                onClick={saveWeeklyContent}
-                  loading={loading}
-                  variant="outline"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Save as Draft
-                </Button>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Default Time:</label>
+                  <input
+                    type="time"
+                    value={defaultTime}
+                    onChange={(e) => {
+                      setDefaultTime(e.target.value)
+                      updateAllPostTimes(e.target.value)
+                    }}
+                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                </div>
+                <div className="flex gap-3">
                 <Button
-                  onClick={scheduleWeeklyContent}
-                loading={loading}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Schedule Posts
-              </Button>
+                  onClick={saveWeeklyContent}
+                    loading={loading}
+                    variant="outline"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Save as Draft
+                  </Button>
+                  <Button
+                    onClick={scheduleWeeklyContent}
+                  loading={loading}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Schedule Posts
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -817,7 +971,7 @@ export default function WeeklyPage() {
                     {/* Day and Date - Centered */}
                     <div className="text-center mb-6">
                       <h4 className="font-semibold text-gray-900 text-lg">
-                        {post.day.toUpperCase()} - {post.scheduledFor ? formatScheduledDate(new Date(post.scheduledFor)) : 'Not scheduled'}
+                        {post.scheduledFor ? formatDateTime(new Date(post.scheduledFor)) : 'Not scheduled'}
                       </h4>
                     </div>
                     
@@ -830,11 +984,20 @@ export default function WeeklyPage() {
                             {post.selectedImages.map((img, idx) => (
                               <div key={img.id || idx} className="relative">
                                 <div className="w-64 h-80 bg-gray-100 border border-gray-200 rounded-lg overflow-hidden">
-                                  <img
-                                    src={showEnhancedImages[post.id]?.[idx] && enhancedImages[post.id]?.[idx] ? enhancedImages[post.id][idx] : img.file_path}
-                                    alt={`Preview ${idx + 1}`}
-                                    className="w-full h-full object-cover"
-                                  />
+                                  {img.mime_type && img.mime_type.startsWith('video/') ? (
+                                    <video
+                                      src={showEnhancedImages[post.id]?.[idx] && enhancedImages[post.id]?.[idx] ? enhancedImages[post.id][idx] : img.file_path}
+                                      className="w-full h-full object-cover"
+                                      controls
+                                      muted
+                                    />
+                                  ) : (
+                                    <img
+                                      src={showEnhancedImages[post.id]?.[idx] && enhancedImages[post.id]?.[idx] ? enhancedImages[post.id][idx] : img.file_path}
+                                      alt={`Preview ${idx + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  )}
                                   {/* Enhancement Button */}
                                   <div className="absolute top-2 left-2">
                                     {!showEnhancedImages[post.id]?.[idx] ? (
@@ -864,11 +1027,20 @@ export default function WeeklyPage() {
                         <div className="flex justify-center">
                           <div className="relative">
                             <div className="w-64 h-80 bg-gray-100 border border-gray-200 rounded-lg overflow-hidden">
-                              <img
-                                src={showEnhancedImages[post.id]?.[0] && enhancedImages[post.id]?.[0] ? enhancedImages[post.id][0] : post.selectedImage.file_path}
-                                alt="Selected"
-                                className="w-full h-full object-cover"
-                              />
+                              {post.selectedImage.mime_type && post.selectedImage.mime_type.startsWith('video/') ? (
+                                <video
+                                  src={showEnhancedImages[post.id]?.[0] && enhancedImages[post.id]?.[0] ? enhancedImages[post.id][0] : post.selectedImage.file_path}
+                                  className="w-full h-full object-cover"
+                                  controls
+                                  muted
+                                />
+                              ) : (
+                                <img
+                                  src={showEnhancedImages[post.id]?.[0] && enhancedImages[post.id]?.[0] ? enhancedImages[post.id][0] : post.selectedImage.file_path}
+                                  alt="Selected"
+                                  className="w-full h-full object-cover"
+                                />
+                              )}
                               {/* Enhancement Button */}
                               <div className="absolute top-2 left-2">
                                 {!showEnhancedImages[post.id]?.[0] ? (
@@ -930,17 +1102,35 @@ export default function WeeklyPage() {
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Scheduled For</label>
                         {editingPost !== post.id && (
-                          <button onClick={() => startEditing(post.id, post.caption, post.hashtags, post.scheduledFor)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                          <div className="flex items-center gap-2 mb-2">
+                            <button onClick={() => startEditing(post.id, post.caption, post.hashtags, post.scheduledFor)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                            <button 
+                              onClick={() => updatePostTime(post.id, defaultTime)}
+                              className="text-xs text-green-600 hover:text-green-800"
+                            >
+                              Quick Time
+                            </button>
+                          </div>
                         )}
                         {editingPost === post.id ? (
                           <input
                             type="datetime-local"
-                            value={editScheduledFor ? editScheduledFor : (post.scheduledFor ? new Date(post.scheduledFor).toISOString().slice(0, 16) : '')}
+                            value={editScheduledFor ? editScheduledFor : (post.scheduledFor ? new Date(post.scheduledFor).toISOString().slice(0, 16) : (() => {
+                              // Use actual date from upcomingWeekDays
+                              const postIndex = posts.findIndex(p => p.id === post.id)
+                              const actualDate = upcomingWeekDays[postIndex]?.dateObj
+                              if (actualDate) {
+                                const [hours, minutes] = defaultTime.split(':').map(Number)
+                                actualDate.setHours(hours, minutes, 0, 0)
+                                return actualDate.toISOString().slice(0, 16)
+                              }
+                              return getNextWeekDate(post.day, defaultTime).slice(0, 16)
+                            })())}
                             onChange={e => setEditScheduledFor(e.target.value)}
                             className="w-full p-2 border border-gray-300 rounded mb-2 text-xs"
                           />
                         ) : (
-                          <p className="text-sm text-gray-900">{post.scheduledFor ? formatScheduledDate(new Date(post.scheduledFor)) : 'Not scheduled'}</p>
+                          <p className="text-sm text-gray-900">{post.scheduledFor ? formatDateTime(new Date(post.scheduledFor)) : 'Not scheduled'}</p>
                         )}
                       </div>
                     </div>

@@ -27,7 +27,7 @@ export default function RefundPolicy() {
             <h2 className="text-xl font-semibold text-gray-900 mt-8 mb-4">Overview</h2>
             <p className="text-gray-700 mb-4">
               This policy outlines the terms and conditions for cancellation and refunds of 
-              Somema AI subscription services. Please read this policy carefully before making 
+              Quely.ai subscription services. Please read this policy carefully before making 
               a purchase.
             </p>
             
@@ -38,7 +38,7 @@ export default function RefundPolicy() {
             <ul className="list-disc pl-6 text-gray-700 mb-4">
               <li>Through your account dashboard settings</li>
               <li>By contacting our customer support team</li>
-              <li>By emailing us at billing@somema.ai</li>
+              <li>By emailing us at info@mzonetechnologies.com</li>
             </ul>
             
             <h2 className="text-xl font-semibold text-gray-900 mt-8 mb-4">Cancellation Terms</h2>
@@ -118,8 +118,8 @@ export default function RefundPolicy() {
               For cancellation and refund requests, please contact us at:
             </p>
             <ul className="list-none pl-6 text-gray-700 mb-4">
-              <li><strong>Email:</strong> billing@somema.ai</li>
-              <li><strong>Support:</strong> support@somema.ai</li>
+              <li><strong>Email:</strong> info@mzonetechnologies.com</li>
+              <li><strong>Support:</strong> info@mzonetechnologies.com</li>
               <li><strong>Response Time:</strong> Within 24 hours during business days</li>
             </ul>
             
