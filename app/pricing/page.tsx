@@ -294,8 +294,8 @@ export default function PricingPage() {
 
       console.log('✅ User authenticated, creating payment order...');
       
-      // Create Razorpay subscription
-      const response = await fetch('/api/payments/create-subscription', {
+      // Create Razorpay order for one-time payment
+      const response = await fetch('/api/payments/create-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -315,8 +315,8 @@ export default function PricingPage() {
         throw new Error(errorData.error || 'Failed to create payment order');
       }
 
-      const { subscriptionId, amount, short_url } = await response.json();
-      console.log('✅ Subscription created:', subscriptionId);
+      const { orderId, amount, key } = await response.json();
+      console.log('✅ Payment order created:', orderId);
 
       // Check if Razorpay is loaded
       console.log('🔍 Checking Razorpay availability...');
@@ -332,34 +332,48 @@ export default function PricingPage() {
       
       console.log('✅ Razorpay is loaded successfully');
 
-      // For subscriptions, redirect to Razorpay payment page
-      if (short_url) {
-        console.log('🔄 Redirecting to Razorpay subscription payment page...');
-        console.log('🔗 Subscription URL:', short_url);
-        
-        // Show a message to the user
-        alert('You will be redirected to Razorpay to complete your subscription. After payment, please return to this page to see your updated subscription status.');
-        
-        // Redirect to Razorpay subscription page
-        window.location.href = short_url;
-        return;
-      }
+      // For one-time payments, we don't need subscription redirects
 
-      // Fallback to checkout (for one-time payments)
+      // Configure Razorpay checkout for one-time payment
       const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_RAfGBRNWfinpD9',
+        key: key,
         amount: amount,
         currency: currency,
         name: 'Quely AI',
-        description: `Subscription for ${planId} plan`,
-        subscription_id: subscriptionId,
+        description: `Payment for ${planId} plan`,
+        order_id: orderId,
         handler: async function (response: any) {
-          console.log('💳 Subscription payment successful:', response);
+          console.log('💳 Payment successful:', response);
           
-          // For subscriptions, we don't need to verify payment here
-          // The webhook will handle the subscription activation
-          alert('Payment successful! Your subscription is now active.');
-          router.push('/dashboard');
+          // Verify payment on the server
+          try {
+            const verifyResponse = await fetch('/api/payments/verify-payment', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentUser.id}`
+              },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature
+              })
+            });
+
+            if (!verifyResponse.ok) {
+              const errorData = await verifyResponse.json();
+              throw new Error(errorData.error || 'Payment verification failed');
+            }
+
+            const verifyData = await verifyResponse.json();
+            console.log('✅ Payment verified:', verifyData);
+            
+            alert('Payment successful! Your plan is now active.');
+            router.push('/dashboard');
+          } catch (error) {
+            console.error('❌ Payment verification failed:', error);
+            alert(`Payment verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
         },
         prefill: {
           name: currentUser.user_metadata?.full_name || '',
@@ -375,12 +389,11 @@ export default function PricingPage() {
         }
       };
 
-      console.log('🔑 Razorpay Key ID:', process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_RAfGBRNWfinpD9');
+      console.log('🔑 Razorpay Key ID:', key);
       console.log('💰 Payment Options:', options);
 
       // Check if Razorpay key is available
-      const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_RAfGBRNWfinpD9';
-      if (!razorpayKey) {
+      if (!key) {
         throw new Error('Razorpay key not configured. Please contact support.');
       }
 
@@ -388,8 +401,8 @@ export default function PricingPage() {
       rzp.open();
 
     } catch (error) {
-      console.error('❌ Error processing subscription:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Failed to process subscription'}`);
+      console.error('❌ Error processing payment:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to process payment'}`);
     } finally {
       setLoading(null);
     }

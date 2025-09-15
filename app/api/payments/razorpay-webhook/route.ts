@@ -792,6 +792,7 @@ async function handleSubscriptionAuthenticated(subscription: any) {
       
       // Get plan credits
       const planCredits = getPlanCredits(planId);
+      console.log('📊 Plan credits for', planId, ':', planCredits);
       
       // Update user subscription in user_profiles table
       const { error: updateError } = await supabase
@@ -840,6 +841,52 @@ async function handleSubscriptionAuthenticated(subscription: any) {
       console.log('✅ Subscription activated from subscription.authenticated event successfully!');
     } else {
       console.log('ℹ️ User subscription already activated:', userData.subscription_status);
+      console.log('🔍 But checking if we need to update credits anyway...');
+      
+      // Even if user is already active, let's check if they have the right credits
+      const { data: currentUserData, error: currentUserError } = await supabase
+        .from('user_profiles')
+        .select('subscription_plan, post_generation_credits, image_enhancement_credits')
+        .eq('user_id', userData.user_id)
+        .single();
+      
+      if (currentUserError) {
+        console.error('❌ Failed to get current user data:', currentUserError);
+        return;
+      }
+      
+      console.log('📋 Current user data:', currentUserData);
+      
+      // Get plan credits
+      const planCredits = getPlanCredits(planId);
+      console.log('📊 Expected plan credits for', planId, ':', planCredits);
+      
+      // Check if credits need to be updated
+      if (currentUserData.post_generation_credits !== planCredits.posts || 
+          currentUserData.image_enhancement_credits !== planCredits.enhancements ||
+          currentUserData.subscription_plan !== planId) {
+        
+        console.log('🎯 Updating user credits and plan name...');
+        
+        const { error: updateError } = await supabase
+          .from('user_profiles')
+          .update({
+            subscription_plan: planId,
+            post_generation_credits: planCredits.posts,
+            image_enhancement_credits: planCredits.enhancements,
+            media_storage_limit: planCredits.storage,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userData.user_id);
+
+        if (updateError) {
+          console.error('❌ Failed to update user credits:', updateError);
+        } else {
+          console.log('✅ User credits and plan name updated successfully!');
+        }
+      } else {
+        console.log('ℹ️ User already has correct credits and plan name');
+      }
     }
   } catch (error) {
     console.error('❌ Error in handleSubscriptionAuthenticated:', error);
