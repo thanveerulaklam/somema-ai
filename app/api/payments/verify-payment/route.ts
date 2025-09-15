@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { calculateSubscriptionEndDate } from '@/lib/billing-utils';
+import { sendPaymentConfirmationEmail, sendWelcomeEmail } from '@/lib/email-service';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -231,6 +232,63 @@ export async function POST(req: NextRequest) {
         console.error('Invoice creation error:', invoiceError);
         // Don't fail the payment if invoice creation fails
       }
+    }
+
+    // Send email notifications
+    try {
+      console.log('📧 Sending email notifications...');
+      
+      // Get user details for email
+      const { data: authUser, error: authUserError } = await supabase.auth.admin.getUserById(orderData.user_id);
+      
+      if (!authUserError && authUser.user) {
+        const user = authUser.user;
+        const userEmail = user.email || '';
+        const userName = user.user_metadata?.full_name || user.user_metadata?.business_name || userEmail.split('@')[0];
+        
+        // Get plan name
+        const planNames = {
+          starter: 'Starter',
+          growth: 'Growth', 
+          scale: 'Scale',
+          free: 'Free'
+        };
+        const planName = planNames[orderData.plan_id as keyof typeof planNames] || orderData.plan_id;
+        
+        // Send payment confirmation email
+        await sendPaymentConfirmationEmail({
+          userEmail,
+          userName,
+          planName: `${planName} Plan`,
+          amount: paymentDetails.amount,
+          currency: orderData.currency,
+          paymentId: razorpay_payment_id,
+          orderId: razorpay_order_id,
+          billingCycle: orderData.billing_cycle,
+          isIndianVisitor: orderData.currency === 'INR'
+        });
+        
+        // Send welcome email for new subscriptions (not top-ups)
+        if (!isTopUp && orderData.plan_id !== 'free') {
+          const planCredits = getPlanCredits(orderData.plan_id);
+          await sendWelcomeEmail({
+            userEmail,
+            userName,
+            planName: `${planName} Plan`,
+            credits: {
+              posts: planCredits.posts,
+              enhancements: planCredits.enhancements
+            }
+          });
+        }
+        
+        console.log('✅ Email notifications sent successfully');
+      } else {
+        console.error('❌ Failed to get user details for email:', authUserError);
+      }
+    } catch (emailError) {
+      console.error('❌ Email notification error:', emailError);
+      // Don't fail the payment if email sending fails
     }
 
     console.log('🎉 Payment verification completed successfully!');
