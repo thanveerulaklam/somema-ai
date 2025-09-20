@@ -699,12 +699,40 @@ function PostEditorContent() {
         if (error) throw error
       }
 
-      // Post is now saved as scheduled - the cron job will handle publishing
+      // Now call Meta API to actually schedule the post
+      const postDataToSend = {
+        postId: postId,
+        caption: postData.caption,
+        hashtags: postData.hashtags,
+        mediaUrl: showEnhancedImage && enhancedImageUrl ? enhancedImageUrl : postData.imageUrl,
+        scheduledTime: utcISOString,
+        platform: schedulePlatform,
+        selectedPageId
+      }
+      console.log('Sending scheduled post data to Meta API:', postDataToSend)
+      
+      const response = await fetch('/api/meta/post', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.id}`
+        },
+        body: JSON.stringify(postDataToSend)
+      })
+      const data = await response.json()
+      console.log('Meta post API response for scheduled post:', data)
+
+      if (!data.success) {
+        throw new Error(data.errorDetails || data.error || 'Failed to schedule post on Meta platforms')
+      }
+
+      // Post is now saved as scheduled and sent to Meta API
       console.log('Post scheduled successfully:', {
         postId,
         scheduledTime,
         status: 'scheduled',
-        page_id: selectedPageId
+        page_id: selectedPageId,
+        metaResponse: data
       })
 
       setShowScheduleModal(false)
