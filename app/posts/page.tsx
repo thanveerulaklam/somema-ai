@@ -100,8 +100,8 @@ function PostsContent() {
   }
 
   const filteredPosts = posts.filter(post => {
-    const matchesSearch = post.caption.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         post.hashtags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+    const matchesSearch = (post.caption || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (post.hashtags || []).some(tag => (tag || '').toLowerCase().includes(searchTerm.toLowerCase()))
     const matchesStatus = statusFilter === 'all' || post.status === statusFilter
     const matchesPlatform = platformFilter === 'all' || post.platform === platformFilter
     return matchesSearch && matchesStatus && matchesPlatform
@@ -328,7 +328,7 @@ function PostsContent() {
         if (!post.caption) continue
 
         // Extract text elements from caption
-        const lines = post.caption ? post.caption.split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0) : [];
+        const lines = (post.caption || '').split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0);
         
         const firstLine = lines[0] || ''
         const headline = firstLine
