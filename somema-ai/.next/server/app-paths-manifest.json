@@ -1,0 +1,8 @@
+{
+  "/api/cron/post-scheduler/route": "app/api/cron/post-scheduler/route.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/ai/generate/page": "app/ai/generate/page.js",
+  "/media/page": "app/media/page.js",
+  "/posts/editor/page": "app/posts/editor/page.js",
+  "/ai/weekly/page": "app/ai/weekly/page.js"
+}

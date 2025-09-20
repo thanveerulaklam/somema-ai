@@ -1,0 +1,171 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../lib/supabase';
+import { CheckCircle, XCircle } from 'lucide-react';
+
+export default function AdminTestPage() {
+  const [user, setUser] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [adminAccess, setAdminAccess] = useState<boolean | null>(null);
+  const [adminInfo, setAdminInfo] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    checkAdminAccess();
+  }, []);
+
+  const checkAdminAccess = async () => {
+    try {
+      setLoading(true);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setAdminAccess(false);
+        setLoading(false);
+        return;
+      }
+      setUser(user);
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (profileError || !profileData) {
+        setAdminAccess(false);
+        setLoading(false);
+        return;
+      }
+
+      setProfile(profileData);
+
+      let hasAdminAccess = false;
+      let adminInfo = null;
+      
+      if (user) {
+        try {
+          const { data: adminData, error: adminError } = await supabase
+            .rpc('get_user_admin_info', { user_uuid: user.id });
+          
+          if (!adminError && adminData) {
+            hasAdminAccess = adminData.is_admin;
+            setAdminInfo(adminData);
+          }
+        } catch (error) {
+          console.error('Error checking admin access:', error);
+        }
+      }
+      
+      setAdminAccess(hasAdminAccess);
+    } catch (error) {
+      console.error('Admin access check failed:', error);
+      setAdminAccess(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Checking admin access...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-2xl mx-auto px-4">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-6">Admin Access Test</h1>
+          
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">User Information</h2>
+            <div className="space-y-2 text-sm">
+              <div><strong>User ID:</strong> {user?.id || 'Not found'}</div>
+              <div><strong>Email:</strong> {user?.email || 'Not found'}</div>
+              <div><strong>Business Name:</strong> {profile?.business_name || 'Not set'}</div>
+              <div><strong>Industry:</strong> {profile?.industry || 'Not set'}</div>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Admin Access Status</h2>
+            {adminAccess ? (
+              <div className="flex items-center space-x-2 text-green-600">
+                <CheckCircle className="h-5 w-5" />
+                <span className="font-medium">✅ ADMIN ACCESS GRANTED</span>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2 text-red-600">
+                <XCircle className="h-5 w-5" />
+                <span className="font-medium">❌ ADMIN ACCESS DENIED</span>
+              </div>
+            )}
+          </div>
+
+          <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
+            <h2 className="text-lg font-semibold text-yellow-800 mb-3">Admin Access Requirements</h2>
+            <div className="text-sm text-yellow-700 space-y-2">
+              <div>• You need to be granted admin privileges by a super admin</div>
+              <div>• Your user ID: <strong>{user?.id || 'Not found'}</strong></div>
+              <div>• Contact your system administrator to get admin access</div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {!adminAccess ? (
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-blue-800 mb-2">To Get Admin Access:</h3>
+                <div className="text-sm text-blue-700 space-y-2">
+                  <div>1. Your user ID is: <strong>{user?.id || 'Not found'}</strong></div>
+                  <div>2. A super admin needs to run this SQL command:</div>
+                  <div className="bg-gray-100 p-2 rounded font-mono text-xs">
+                    INSERT INTO admin_roles (user_id, role, permissions, granted_by) VALUES ('{user?.id || 'YOUR_USER_ID'}', 'admin', '{{"users": ["read"], "analytics": ["read"]}}', '7c12a35b-353c-43ff-808b-f1c574df69e0');
+                  </div>
+                  <div>3. After that, refresh this page</div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-green-50 rounded-lg">
+                <h3 className="text-lg font-semibold text-green-800 mb-2">✅ You're All Set!</h3>
+                <div className="text-sm text-green-700 space-y-2">
+                  <div>• You can now access <strong>/admin</strong></div>
+                  <div>• You can manage users at <strong>/admin/users</strong></div>
+                  <div>• All admin features are available</div>
+                </div>
+                <div className="mt-3">
+                  <a 
+                    href="/admin" 
+                    className="inline-block bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
+                  >
+                    Go to Admin Dashboard
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <details className="mt-6">
+            <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-800">
+              Debug Information
+            </summary>
+            <div className="mt-2 p-3 bg-gray-100 rounded text-xs font-mono">
+              <pre>{JSON.stringify({ 
+                user: user ? { id: user.id, email: user.email } : null, 
+                profile: profile ? { business_name: profile.business_name, industry: profile.industry } : null, 
+                adminAccess,
+                adminInfo 
+              }, null, 2)}</pre>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  );
+}

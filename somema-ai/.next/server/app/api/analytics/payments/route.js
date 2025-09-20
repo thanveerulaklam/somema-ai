@@ -1,0 +1,30 @@
+(()=>{var e={};e.id=4156,e.ids=[4156],e.modules={3295:e=>{"use strict";e.exports=require("next/dist/server/app-render/after-task-async-storage.external.js")},10846:e=>{"use strict";e.exports=require("next/dist/compiled/next-server/app-page.runtime.prod.js")},11997:e=>{"use strict";e.exports=require("punycode")},27507:(e,r,t)=>{"use strict";t.r(r),t.d(r,{patchFetch:()=>y,routeModule:()=>l,serverHooks:()=>m,workAsyncStorage:()=>p,workUnitAsyncStorage:()=>d});var s={};t.r(s),t.d(s,{GET:()=>c});var a=t(96559),n=t(48088),o=t(37719),u=t(32190);let i=(0,t(66437).UU)("https://yfmypikqgegvookjzvyv.supabase.co",process.env.SUPABASE_SERVICE_ROLE_KEY);async function c(e){try{console.log("\uD83D\uDCCA Fetching payment analytics...");let r=new URL(e.url),t=parseInt(r.searchParams.get("days")||"30"),s=new Date;s.setDate(s.getDate()-t),console.log(`📅 Analytics period: Last ${t} days (from ${s.toISOString()})`);let{data:a,error:n}=await i.from("payments").select(`
+        id,
+        amount,
+        currency,
+        status,
+        created_at,
+        payment_orders!inner(
+          plan_id,
+          billing_cycle,
+          user_id,
+          user_profiles!inner(
+            full_name,
+            business_name
+          )
+        )
+      `).gte("created_at",s.toISOString()).order("created_at",{ascending:!1});if(n)return console.error("❌ Error fetching payments:",n),u.NextResponse.json({error:"Failed to fetch payment data"},{status:500});let{data:o,error:c}=await i.from("payment_orders").select(`
+        order_id,
+        plan_id,
+        amount,
+        total_amount,
+        currency,
+        status,
+        billing_cycle,
+        created_at,
+        user_id,
+        user_profiles!inner(
+          full_name,
+          business_name
+        )
+      `).gte("created_at",s.toISOString()).order("created_at",{ascending:!1});if(c)return console.error("❌ Error fetching orders:",c),u.NextResponse.json({error:"Failed to fetch order data"},{status:500});let l={summary:{totalRevenue:0,totalOrders:o.length,successfulPayments:a.filter(e=>"captured"===e.status).length,failedPayments:a.filter(e=>"failed"===e.status).length,totalCustomers:new Set(o.map(e=>e.user_id)).size,averageOrderValue:0,conversionRate:0},revenue:{byPlan:{},byCurrency:{},byBillingCycle:{},daily:[]},plans:{starter:{orders:0,revenue:0,customers:0},growth:{orders:0,revenue:0,customers:0},scale:{orders:0,revenue:0,customers:0}},recentPayments:a.slice(0,10).map(e=>({id:e.id,amount:e.amount,currency:e.currency,status:e.status,plan:e.payment_orders?.[0]?.plan_id||"unknown",customer:e.payment_orders?.[0]?.user_profiles?.[0]?.business_name||e.payment_orders?.[0]?.user_profiles?.[0]?.full_name||"Unknown",date:e.created_at}))},p=a.filter(e=>"captured"===e.status);l.summary.totalRevenue=p.reduce((e,r)=>{let t="INR"===r.currency?r.amount/100:r.amount;return e+t},0),l.summary.averageOrderValue=l.summary.totalOrders>0?l.summary.totalRevenue/l.summary.totalOrders:0,l.summary.conversionRate=l.summary.totalOrders>0?l.summary.successfulPayments/l.summary.totalOrders*100:0,p.forEach(e=>{let r=e.payment_orders?.[0]?.plan_id||"unknown",t="INR"===e.currency?e.amount/100:e.amount;l.revenue.byPlan[r]||(l.revenue.byPlan[r]=0),l.revenue.byPlan[r]+=t,l.plans[r]&&(l.plans[r].revenue+=t,l.plans[r].orders+=1)}),p.forEach(e=>{let r="INR"===e.currency?e.amount/100:e.amount;l.revenue.byCurrency[e.currency]||(l.revenue.byCurrency[e.currency]=0),l.revenue.byCurrency[e.currency]+=r}),p.forEach(e=>{let r="INR"===e.currency?e.amount/100:e.amount,t=e.payment_orders?.[0]?.billing_cycle||"unknown";l.revenue.byBillingCycle[t]||(l.revenue.byBillingCycle[t]=0),l.revenue.byBillingCycle[t]+=r});let d={};p.forEach(e=>{let r=e.created_at.split("T")[0],t="INR"===e.currency?e.amount/100:e.amount;d[r]||(d[r]={revenue:0,orders:0}),d[r].revenue+=t,d[r].orders+=1}),l.revenue.daily=Object.entries(d).map(([e,r])=>({date:e,...r})).sort((e,r)=>e.date.localeCompare(r.date));let m={};return o.forEach(e=>{m[e.plan_id]||(m[e.plan_id]=new Set),m[e.plan_id].add(e.user_id)}),Object.entries(m).forEach(([e,r])=>{l.plans[e]&&(l.plans[e].customers=r.size)}),console.log("✅ Payment analytics calculated successfully"),console.log("\uD83D\uDCCA Summary:",l.summary),u.NextResponse.json({success:!0,analytics:l,period:{days:t,startDate:s.toISOString(),endDate:new Date().toISOString()}})}catch(e){return console.error("❌ Payment analytics error:",e),u.NextResponse.json({error:"Failed to fetch payment analytics",details:e.message},{status:500})}}let l=new a.AppRouteRouteModule({definition:{kind:n.RouteKind.APP_ROUTE,page:"/api/analytics/payments/route",pathname:"/api/analytics/payments",filename:"route",bundlePath:"app/api/analytics/payments/route"},resolvedPagePath:"/Users/thanveerulaklam/Desktop/Projects/Somema/somema-ai/app/api/analytics/payments/route.ts",nextConfigOutput:"",userland:s}),{workAsyncStorage:p,workUnitAsyncStorage:d,serverHooks:m}=l;function y(){return(0,o.patchFetch)({workAsyncStorage:p,workUnitAsyncStorage:d})}},27910:e=>{"use strict";e.exports=require("stream")},29294:e=>{"use strict";e.exports=require("next/dist/server/app-render/work-async-storage.external.js")},34631:e=>{"use strict";e.exports=require("tls")},39727:()=>{},44870:e=>{"use strict";e.exports=require("next/dist/compiled/next-server/app-route.runtime.prod.js")},47990:()=>{},55511:e=>{"use strict";e.exports=require("crypto")},55591:e=>{"use strict";e.exports=require("https")},63033:e=>{"use strict";e.exports=require("next/dist/server/app-render/work-unit-async-storage.external.js")},74075:e=>{"use strict";e.exports=require("zlib")},78335:()=>{},79428:e=>{"use strict";e.exports=require("buffer")},79551:e=>{"use strict";e.exports=require("url")},81630:e=>{"use strict";e.exports=require("http")},91645:e=>{"use strict";e.exports=require("net")},94735:e=>{"use strict";e.exports=require("events")},96487:()=>{}};var r=require("../../../../webpack-runtime.js");r.C(e);var t=e=>r(r.s=e),s=r.X(0,[4447,580,6437],()=>t(27507));module.exports=s})();

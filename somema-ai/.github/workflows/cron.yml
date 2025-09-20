@@ -1,0 +1,15 @@
+name: Post Scheduler Cron
+
+on:
+  # schedule:
+  #   - cron: '* * * * *'  # Every minute - DISABLED: Using Vercel Cron instead
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger post scheduler
+        run: |
+          curl -X POST https://somema-ai.vercel.app/api/cron/post-scheduler
+          echo "Post scheduler triggered at $(date)" 

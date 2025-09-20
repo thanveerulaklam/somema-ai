@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Detection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        video {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Audio Detection Test</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Audio Detection Function</h2>
+        <p>This tests the audio detection function used in the media library:</p>
+        <button onclick="testAudioDetection()">Test Audio Detection</button>
+        <div id="result1"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Video with Audio</h2>
+        <p>Upload a video file to test audio detection:</p>
+        <input type="file" id="videoFile" accept="video/*" onchange="testVideoFile()">
+        <div id="result2"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Video from URL</h2>
+        <p>Enter a video URL to test:</p>
+        <input type="text" id="videoUrl" placeholder="Enter video URL" style="width: 100%; margin-bottom: 10px;">
+        <button onclick="testVideoUrl()">Test URL</button>
+        <div id="result3"></div>
+    </div>
+
+    <script>
+        function logResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="result ${type}">${message}</div>`;
+        }
+
+        function checkVideoAudio(file) {
+            return new Promise((resolve) => {
+                const video = document.createElement('video');
+                video.muted = true;
+                video.preload = 'metadata';
+                
+                video.onloadedmetadata = () => {
+                    console.log('🔍 Checking audio for video:', file.name);
+                    
+                    // Method 1: Check audioTracks (most reliable)
+                    if (video.audioTracks && video.audioTracks.length > 0) {
+                        console.log('✅ Audio detected via audioTracks:', video.audioTracks.length, 'tracks');
+                        resolve(true);
+                        return;
+                    }
+                    
+                    // Method 2: Check if video has audio by trying to unmute and check volume
+                    try {
+                        const originalMuted = video.muted;
+                        const originalVolume = video.volume;
+                        
+                        video.muted = false;
+                        video.volume = 0.1;
+                        
+                        // Check if there are any audio events or if the video has audio context
+                        const hasAudioContext = video.mozHasAudio || 
+                                               video.webkitAudioDecodedByteCount > 0 ||
+                                               (video.audioTracks && video.audioTracks.length > 0);
+                        
+                        console.log('🔍 Audio context check:', hasAudioContext);
+                        
+                        // Reset video state
+                        video.muted = originalMuted;
+                        video.volume = originalVolume;
+                        
+                        if (hasAudioContext) {
+                            console.log('✅ Audio detected via audio context');
+                            resolve(true);
+                            return;
+                        }
+                    } catch (error) {
+                        console.log('⚠️ Error checking audio context:', error);
+                    }
+                    
+                    // Method 3: Check video duration and assume it has audio if it's a reasonable length
+                    if (video.duration > 0 && video.duration < 3600) { // Less than 1 hour
+                        console.log('⚠️ Assuming video has audio based on duration:', video.duration);
+                        resolve(true);
+                        return;
+                    }
+                    
+                    console.log('❌ No audio detected');
+                    resolve(false);
+                }
+                
+                video.onerror = (error) => {
+                    console.error('❌ Error loading video metadata:', error);
+                    resolve(true); // Assume it has audio to be safe
+                }
+                
+                video.src = URL.createObjectURL(file);
+            });
+        }
+
+        function checkVideoAudioFromUrl(url) {
+            return new Promise((resolve) => {
+                const video = document.createElement('video');
+                video.muted = true;
+                video.preload = 'metadata';
+                
+                video.onloadedmetadata = () => {
+                    console.log('🔍 Checking audio for video URL:', url);
+                    
+                    // Method 1: Check audioTracks (most reliable)
+                    if (video.audioTracks && video.audioTracks.length > 0) {
+                        console.log('✅ Audio detected via audioTracks:', video.audioTracks.length, 'tracks');
+                        resolve(true);
+                        return;
+                    }
+                    
+                    // Method 2: Check if video has audio by trying to unmute and check volume
+                    try {
+                        const originalMuted = video.muted;
+                        const originalVolume = video.volume;
+                        
+                        video.muted = false;
+                        video.volume = 0.1;
+                        
+                        // Check if there are any audio events or if the video has audio context
+                        const hasAudioContext = video.mozHasAudio || 
+                                               video.webkitAudioDecodedByteCount > 0 ||
+                                               (video.audioTracks && video.audioTracks.length > 0);
+                        
+                        console.log('🔍 Audio context check:', hasAudioContext);
+                        
+                        // Reset video state
+                        video.muted = originalMuted;
+                        video.volume = originalVolume;
+                        
+                        if (hasAudioContext) {
+                            console.log('✅ Audio detected via audio context');
+                            resolve(true);
+                            return;
+                        }
+                    } catch (error) {
+                        console.log('⚠️ Error checking audio context:', error);
+                    }
+                    
+                    // Method 3: Check video duration and assume it has audio if it's a reasonable length
+                    if (video.duration > 0 && video.duration < 3600) { // Less than 1 hour
+                        console.log('⚠️ Assuming video has audio based on duration:', video.duration);
+                        resolve(true);
+                        return;
+                    }
+                    
+                    console.log('❌ No audio detected');
+                    resolve(false);
+                }
+                
+                video.onerror = (error) => {
+                    console.error('❌ Error loading video metadata:', error);
+                    resolve(true); // Assume it has audio to be safe
+                }
+                
+                video.src = url;
+            });
+        }
+
+        async function testAudioDetection() {
+            logResult('result1', 'Testing audio detection function...', 'info');
+            
+            // Create a simple test video element
+            const video = document.createElement('video');
+            video.muted = true;
+            video.preload = 'metadata';
+            
+            // Test with a sample video URL (you can replace this with your video URL)
+            const testUrl = 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4';
+            
+            try {
+                const hasAudio = await checkVideoAudioFromUrl(testUrl);
+                logResult('result1', `Audio detection test completed. Result: ${hasAudio ? 'Has Audio' : 'No Audio'}`, hasAudio ? 'success' : 'error');
+            } catch (error) {
+                logResult('result1', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testVideoFile() {
+            const fileInput = document.getElementById('videoFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                logResult('result2', 'Please select a video file first.', 'error');
+                return;
+            }
+            
+            logResult('result2', `Testing file: ${file.name} (${file.size} bytes)`, 'info');
+            
+            try {
+                const hasAudio = await checkVideoAudio(file);
+                logResult('result2', `File test completed. Result: ${hasAudio ? 'Has Audio' : 'No Audio'}`, hasAudio ? 'success' : 'error');
+                
+                // Also display the video
+                const video = document.createElement('video');
+                video.controls = true;
+                video.style.maxWidth = '100%';
+                video.style.marginTop = '10px';
+                video.src = URL.createObjectURL(file);
+                document.getElementById('result2').appendChild(video);
+            } catch (error) {
+                logResult('result2', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testVideoUrl() {
+            const urlInput = document.getElementById('videoUrl');
+            const url = urlInput.value.trim();
+            
+            if (!url) {
+                logResult('result3', 'Please enter a video URL first.', 'error');
+                return;
+            }
+            
+            logResult('result3', `Testing URL: ${url}`, 'info');
+            
+            try {
+                const hasAudio = await checkVideoAudioFromUrl(url);
+                logResult('result3', `URL test completed. Result: ${hasAudio ? 'Has Audio' : 'No Audio'}`, hasAudio ? 'success' : 'error');
+                
+                // Also display the video
+                const video = document.createElement('video');
+                video.controls = true;
+                video.style.maxWidth = '100%';
+                video.style.marginTop = '10px';
+                video.src = url;
+                document.getElementById('result3').appendChild(video);
+            } catch (error) {
+                logResult('result3', `Error: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
