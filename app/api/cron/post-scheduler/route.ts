@@ -48,6 +48,38 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
     logs.push(`[${now}] Triggering queue processor for scheduled posts...`);
 
+    // First, add any scheduled posts that are not in the queue
+    const { data: scheduledPosts, error: scheduledError } = await supabase
+      .from('posts')
+      .select('id, user_id, scheduled_for')
+      .eq('status', 'scheduled')
+      .lte('scheduled_for', now);
+
+    if (scheduledError) {
+      logs.push(`Error fetching scheduled posts: ${scheduledError.message}`);
+    } else if (scheduledPosts && scheduledPosts.length > 0) {
+      logs.push(`Found ${scheduledPosts.length} scheduled posts due for posting`);
+      
+      // Add posts to queue if they're not already there
+      for (const post of scheduledPosts) {
+        const { error: insertError } = await supabase
+          .from('post_queue')
+          .insert({
+            post_id: post.id,
+            user_id: post.user_id,
+            scheduled_for: post.scheduled_for,
+            status: 'pending'
+          })
+          .select();
+        
+        if (insertError && !insertError.message.includes('duplicate key')) {
+          logs.push(`Error adding post ${post.id} to queue: ${insertError.message}`);
+        } else {
+          logs.push(`Added post ${post.id} to queue`);
+        }
+      }
+    }
+
     // Check queue status
     const { data: queueStats, error: queueError } = await supabase
       .from('post_queue')
