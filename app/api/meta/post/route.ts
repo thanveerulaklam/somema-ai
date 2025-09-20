@@ -259,6 +259,11 @@ export async function POST(request: NextRequest) {
           instagram: bothResult.instagram.postId
         }
         
+        // CRITICAL FIX: Always set scheduled_for when status is scheduled
+        if (facebookSuccess && instagramSuccess) {
+          updateData.scheduled_for = scheduledTime
+        }
+        
         if (!facebookSuccess || !instagramSuccess) {
           updateData.meta_errors = {
             facebook: bothResult.facebook.error,
