@@ -253,14 +253,15 @@ export async function POST(request: NextRequest) {
         const facebookSuccess = bothResult.facebook.success
         const instagramSuccess = bothResult.instagram.success
         
-        updateData.status = (facebookSuccess && instagramSuccess) ? 'scheduled' : 'failed'
+        // Mark as successful if at least one platform succeeds
+        updateData.status = (facebookSuccess || instagramSuccess) ? 'scheduled' : 'failed'
         updateData.meta_post_ids = {
           facebook: bothResult.facebook.postId,
           instagram: bothResult.instagram.postId
         }
         
         // CRITICAL FIX: Always set scheduled_for when status is scheduled
-        if (facebookSuccess && instagramSuccess) {
+        if (facebookSuccess || instagramSuccess) {
           updateData.scheduled_for = scheduledTime
         }
         
@@ -301,14 +302,15 @@ export async function POST(request: NextRequest) {
       
       if (facebookSuccess && instagramSuccess) {
         userMessage = 'Post published successfully to both Instagram and Facebook!'
+        overallSuccess = true
       } else if (facebookSuccess && !instagramSuccess) {
-        userMessage = 'Posted to Facebook successfully, but Instagram posting failed. Please try Instagram posting again in a few minutes.'
+        userMessage = 'Posted to Facebook successfully! Instagram posting failed due to API limitations, but your post is scheduled and will be published to Facebook.'
         errorDetails = `Instagram error: ${bothResult.instagram.error}`
-        overallSuccess = false
+        overallSuccess = true // Still consider it successful since Facebook worked
       } else if (!facebookSuccess && instagramSuccess) {
-        userMessage = 'Posted to Instagram successfully, but Facebook posting failed.'
+        userMessage = 'Posted to Instagram successfully! Facebook posting failed, but your post is scheduled and will be published to Instagram.'
         errorDetails = `Facebook error: ${bothResult.facebook.error}`
-        overallSuccess = false
+        overallSuccess = true // Still consider it successful since Instagram worked
       } else {
         userMessage = 'Posting failed on both platforms. Please try again in a few minutes.'
         errorDetails = `Instagram: ${bothResult.instagram.error}, Facebook: ${bothResult.facebook.error}`

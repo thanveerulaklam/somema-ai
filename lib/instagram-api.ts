@@ -100,25 +100,129 @@ async function validateImageForInstagram(imageUrl: string): Promise<{ isValid: b
 // Function to resize image to meet Instagram requirements
 async function resizeImageForInstagram(imageUrl: string): Promise<{ success: boolean; resizedUrl?: string; error?: string }> {
   try {
-    // Use absolute URL for server-side API call
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const response = await fetch(`${baseUrl}/api/resize-image`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageUrl })
-    })
-
-    const result = await response.json()
+    // Import sharp and supabase client for direct processing
+    const sharp = (await import('sharp')).default
+    const { createClient } = await import('@supabase/supabase-js')
     
+    // Fetch the image
+    const response = await fetch(imageUrl)
     if (!response.ok) {
-      return { success: false, error: result.error || 'Failed to resize image' }
+      return { success: false, error: 'Could not fetch image' }
     }
 
-    if (result.resized && result.resizedUrl) {
-      return { success: true, resizedUrl: result.resizedUrl }
+    const imageBuffer = await response.arrayBuffer()
+    const metadata = await sharp(Buffer.from(imageBuffer)).metadata()
+    const { width: originalWidth, height: originalHeight } = metadata
+
+    if (!originalWidth || !originalHeight) {
+      return { success: false, error: 'Could not determine image dimensions' }
     }
 
-    return { success: true, resizedUrl: imageUrl }
+    const originalAspectRatio = originalWidth / originalHeight
+    console.log(`Original image: ${originalWidth}x${originalHeight} (AR: ${originalAspectRatio.toFixed(2)})`)
+
+    // Instagram aspect ratios
+    const INSTAGRAM_RATIOS = [
+      { ratio: 0.8, name: 'portrait' }, // 4:5
+      { ratio: 1.0, name: 'square' },   // 1:1
+      { ratio: 1.91, name: 'landscape' } // 16:9
+    ]
+
+    // Pick closest Instagram ratio
+    let target = INSTAGRAM_RATIOS[0]
+    let minDiff = Math.abs(originalAspectRatio - target.ratio)
+
+    for (const r of INSTAGRAM_RATIOS) {
+      const diff = Math.abs(originalAspectRatio - r.ratio)
+      if (diff < minDiff) {
+        minDiff = diff
+        target = r
+      }
+    }
+
+    const targetAspectRatio = target.ratio
+    console.log(`Target AR chosen: ${targetAspectRatio} (${target.name})`)
+
+    // Calculate crop box
+    let cropWidth: number
+    let cropHeight: number
+    let extractLeft: number
+    let extractTop: number
+
+    if (originalAspectRatio < targetAspectRatio) {
+      // Too tall → crop height
+      cropWidth = originalWidth
+      cropHeight = Math.round(originalWidth / targetAspectRatio)
+      extractLeft = 0
+      extractTop = Math.round((originalHeight - cropHeight) / 2)
+    } else {
+      // Too wide → crop width
+      cropHeight = originalHeight
+      cropWidth = Math.round(originalHeight * targetAspectRatio)
+      extractLeft = Math.round((originalWidth - cropWidth) / 2)
+      extractTop = 0
+    }
+
+    console.log(`Crop box: ${cropWidth}x${cropHeight} at [${extractLeft}, ${extractTop}]`)
+
+    // Crop the image
+    const croppedBuffer = await sharp(Buffer.from(imageBuffer))
+      .extract({
+        left: extractLeft,
+        top: extractTop,
+        width: cropWidth,
+        height: cropHeight
+      })
+      .toBuffer()
+
+    // Final resize to Instagram standard
+    let finalWidth = 1080
+    let finalHeight = 1080
+
+    if (target.name === 'portrait') {
+      finalWidth = 1080
+      finalHeight = 1350
+    } else if (target.name === 'landscape') {
+      finalWidth = 1080
+      finalHeight = 608
+    } else if (target.name === 'square') {
+      finalWidth = 1080
+      finalHeight = 1080
+    }
+
+    console.log(`Final resize: ${finalWidth}x${finalHeight} (standard ${target.name})`)
+
+    const finalBuffer = await sharp(croppedBuffer)
+      .resize(finalWidth, finalHeight)
+      .jpeg({ quality: 90 })
+      .toBuffer()
+
+    // Upload to Supabase
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl || !serviceKey) {
+      return { success: false, error: 'Supabase env vars missing' }
+    }
+
+    const supabase = createClient(supabaseUrl, serviceKey)
+    const fileName = `instagram-resized-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`
+    const filePath = `media/resized/${fileName}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('media')
+      .upload(filePath, Buffer.from(finalBuffer), {
+        contentType: 'image/jpeg',
+        upsert: true
+      })
+
+    if (uploadError) {
+      return { success: false, error: `Upload failed: ${uploadError.message}` }
+    }
+
+    const { data: publicUrlData } = supabase.storage.from('media').getPublicUrl(filePath)
+    const resizedUrl = publicUrlData?.publicUrl
+
+    return { success: true, resizedUrl }
   } catch (error) {
     return { success: false, error: `Error resizing image: ${error}` }
   }
@@ -331,6 +435,99 @@ export class InstagramAPIService {
 
         if (!response.ok) {
           console.error('Instagram API error response:', result)
+          
+          // Handle whitelist error with fallback to immediate posting
+          if (result.error?.code === 3 || result.error?.message?.includes('whitelist')) {
+            console.log('Instagram whitelist error detected, attempting immediate posting fallback...')
+            
+            // For whitelist errors, try posting immediately without scheduling
+            const immediateMediaData = {
+              media_type: isVideo ? 'REELS' : 'IMAGE',
+              [isVideo ? 'video_url' : 'image_url']: mediaUrl,
+              caption: formattedCaption,
+              access_token: this.accessToken
+            }
+            
+            console.log('Attempting immediate Instagram post...')
+            const immediateResponse = await fetch(`https://graph.facebook.com/v18.0/${this.instagramBusinessAccountId}/media`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(immediateMediaData)
+            })
+            
+            const immediateResult = await immediateResponse.json()
+            console.log('Immediate post response:', immediateResult)
+            
+            if (!immediateResponse.ok) {
+              throw new Error(`Instagram API error (whitelist fallback failed): ${immediateResult.error?.message || 'Unknown error'}`)
+            }
+            
+            // Poll for media status
+            let status = 'IN_PROGRESS'
+            let pollCount = 0
+            const maxPolls = 30
+            const pollDelay = 10000
+            
+            while (status !== 'FINISHED' && pollCount < maxPolls) {
+              pollCount++
+              console.log(`Checking immediate post media status (poll ${pollCount}/${maxPolls})...`)
+              
+              const statusResponse = await fetch(
+                `https://graph.facebook.com/v18.0/${immediateResult.id}?fields=status_code&access_token=${this.accessToken}`
+              )
+              
+              if (!statusResponse.ok) {
+                throw new Error('Failed to check immediate post media status')
+              }
+              
+              const statusResult = await statusResponse.json()
+              status = statusResult.status_code
+              console.log('Immediate post media status:', status)
+              
+              if (status === 'FINISHED') {
+                break
+              }
+              
+              if (status === 'ERROR') {
+                throw new Error(`Immediate post media processing failed: ${(statusResult as any).error?.message || 'Unknown error'}`)
+              }
+              
+              if (pollCount < maxPolls) {
+                await new Promise(resolve => setTimeout(resolve, pollDelay))
+              }
+            }
+            
+            if (status !== 'FINISHED') {
+              throw new Error('Immediate post media processing timed out')
+            }
+            
+            // Publish immediately
+            const publishData = {
+              creation_id: immediateResult.id,
+              access_token: this.accessToken
+            }
+            
+            const publishResponse = await fetch(`https://graph.facebook.com/v18.0/${this.instagramBusinessAccountId}/media_publish`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(publishData)
+            })
+            
+            const publishResult = await publishResponse.json()
+            console.log('Immediate post publish response:', publishResult)
+            
+            if (!publishResponse.ok) {
+              throw new Error(`Instagram immediate post publish error: ${publishResult.error?.message || 'Unknown error'}`)
+            }
+            
+            console.log('=== INSTAGRAM IMMEDIATE POSTING SUCCESS (WHITELIST FALLBACK) ===')
+            return {
+              success: true,
+              postId: publishResult.id,
+              scheduledTime: undefined
+            }
+          }
+          
           throw new Error(`Instagram API error: ${result.error?.message || result.error?.type || 'Unknown error'}`)
         }
 
@@ -451,6 +648,13 @@ export class InstagramAPIService {
 
             if (!individualResponse.ok) {
               console.error('Error with media', mediaUrl + ':', individualResult)
+              
+              // Handle whitelist error for carousel posts
+              if (individualResult.error?.code === 3 || individualResult.error?.message?.includes('whitelist')) {
+                console.log('Instagram whitelist error detected for carousel media, skipping this media item...')
+                continue // Skip this media item and continue with others
+              }
+              
               throw new Error(`Failed to create media container: ${individualResult.error?.message || 'Unknown error'}`)
             }
 
