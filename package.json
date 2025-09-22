@@ -1,13 +1,4 @@
 {
-<<<<<<< HEAD
-  "dependencies": {
-    "keen-slider": "^6.8.6",
-    "razorpay": "^2.9.6",
-    "stripe": "^18.3.0"
-  },
-  "devDependencies": {
-    "@types/busboy": "^1.5.4"
-=======
   "name": "somema-ai",
   "version": "0.1.0",
   "private": true,
@@ -36,6 +27,7 @@
     "fabric": "^6.7.0",
     "facebook-nodejs-business-sdk": "^23.0.0",
     "heic2any": "^0.0.4",
+    "keen-slider": "^6.8.6",
     "lucide-react": "^0.523.0",
     "next": "15.3.4",
     "openai": "^5.12.2",
@@ -46,7 +38,7 @@
     "recharts": "^3.0.0",
     "replicate": "^1.0.1",
     "sharp": "^0.34.3",
-    "stripe": "^18.2.1",
+    "stripe": "^18.3.0",
     "tailwind-merge": "^3.3.1",
     "zod": "^3.25.67"
   },
@@ -62,6 +54,5 @@
     "eslint-config-next": "15.3.4",
     "tailwindcss": "^4",
     "typescript": "^5"
->>>>>>> 02d868d65835d85f5aecef34c733b66bdba455f4
   }
 }
